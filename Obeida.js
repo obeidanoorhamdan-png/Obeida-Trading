@@ -1309,7 +1309,7 @@ modal.innerHTML=`<div style="background:linear-gradient(145deg,#0a0f1e,#020408);
 <p style="color:#ffaa66;font-size:11px;">🔑 أدخل كلمة المرور للمتابعة</p>
 <input type="password" id="pass-input" placeholder="كلمة المرور" style="width:100%;padding:12px;margin:20px 0;background:#0f1422;border:1px solid #ffd966;color:#fff;border-radius:30px;text-align:center;">
 <button id="login-btn" style="width:100%;padding:12px;background:linear-gradient(95deg,#ffd966,#ffaa33);border:none;border-radius:30px;color:#000;cursor:pointer;font-weight:bold;">تأكيد الدخول</button>
-<p style="color:#ffaa66;margin-top:20px;font-size:11px;">📢 قناة تيلجرام : <strong style="color:#88ccff;">@ObeidaTrading</strong></p>
+<p style="color:#ffaa66;margin-top:20px;font-size:11px;">📢 قناة تيلجرام 1 : <strong style="color:#88ccff;">@ObeidaTrading</strong></p>
 <p style="color:#88ccff;font-size:10px;margin-top:10px;">✅ ${STRATEGIES.length} استراتيجية جاهزة للتحليل</p>
 </div>`;
 document.body.appendChild(modal);
