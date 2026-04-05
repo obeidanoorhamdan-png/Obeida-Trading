@@ -1,18 +1,6 @@
 {
-  "bot_settings": {
-    "is_active": true,
-    "current_version": "7.4",
-    "status_message": "نظام Obeida Trading يعمل بكفاءة V7.4 Elite Sniper ✅",
-    "maintenance_mode": false
-  },
-  "security": {
-    "force_update": false,
-    "update_url": "https://t.me/Obeida_Trading",
-    "kill_switch": false
-  },
-  "features": {
-    "enable_signals": true,
-    "analysis_speed": "high",
-    "server_refresh_rate": 30
-  }
+  "is_active": true,
+  "status_message": "البوت بعمل بنجاح  ✅",
+  "bot_version": "7.4 Elite",
+  "channel_url": "https://t.me/Obeida_Trading"
 }
