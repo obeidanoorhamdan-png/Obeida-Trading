@@ -1,6 +1,6 @@
 {
-  "is_active": False,
-  "status_message": "البوت بعمل بنجاح  ✅",
-  "bot_version": "7.4 Elite",
-  "channel_url": "https://t.me/Obeida_Trading"
+  "is_active": true,
+  "status_message": "🕧 تم إيقاف البوت بشكل مؤقت 🕧",
+  "bot_version": "1.0 Elite",
+  "channel_url": "https://t.me/ObeidaTrading"
 }
