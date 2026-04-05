@@ -8,7 +8,7 @@
     // قناة التليجرام
     const TELEGRAM_CHANNEL = "https://t.me/ObeidaTrading";
     const CHANNEL_NAME = "Obeida Trading";
-    const BOT_NAME = "Obeida Trading Bot";
+    const BOT_NAME = "Obeida Trading";
     const VERSION = "V5.0";
     
     // حالة البوت
@@ -184,7 +184,7 @@
         `;
         updateInfo.innerHTML = `
             <div style="color:#88ccff; margin-bottom:8px;">📋 قائمة التحديثات الجديدة:</div>
-            <div style="color:#ddd; font-size:11px;">• ✨ إضافة 250+ استراتيجية متطورة</div>
+            <div style="color:#ddd; font-size:11px;">• ✨ إضافة اقوى استراتيجيات</div>
             <div style="color:#ddd; font-size:11px;">• 📊 تحليل الشموع المؤثرة مع توصيات</div>
             <div style="color:#ddd; font-size:11px;">• 🎯 نظام دخول ذكي وفق فيبوناتشي</div>
             <div style="color:#ddd; font-size:11px;">• 📈 رادار سعر لحظي متطور</div>
