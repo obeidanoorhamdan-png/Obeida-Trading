@@ -310,61 +310,55 @@
         timeframeObserver = new MutationObserver(() => syncDisplay());
         timeframeObserver.observe(document.body, { childList: true, subtree: true });
     }
-
+    
     function initAccountDetection() {
-        function checkAndUpdate() {
-            const headerText = document.querySelector('header')?.innerText || document.body.innerText;
-            
-            const isDemo = headerText.includes("Demo") || headerText.includes("تجريبي") || headerText.includes("DEMO") || headerText.includes("demo");
-            const currentType = isDemo ? "DEMO" : (headerText.includes("Real") || headerText.includes("حقيقي") || headerText.includes("LIVE") ? "LIVE" : null);
+    let lastAccountType = "";
 
-            if (currentType && currentType !== lastAccountType) {
-                lastAccountType = currentType;
-                currentAccountType = currentType;
-                
-                const accountEl = document.getElementById('current-account-display');
-                if (accountEl) {
-                    accountEl.innerText = currentType === "DEMO" ? "🔸 تجريبي" : "✅ حقيقي";
-                    accountEl.style.color = currentType === "DEMO" ? "#ffaa66" : "#00ffaa";
-                }
-                
-                if (currentType === "DEMO") {
-                    console.log("%c[الحساب]: حساب تجريبي 🔸", "color: orange; font-weight: bold;");
-                } else if (currentType === "LIVE") {
-                    console.log("%c[الحساب]: حساب حقيقي ✅", "color: #00ff00; font-weight: bold;");
-                    console.warn("⚠️ تنبيه: أنت تستخدم حساب حقيقي - توخ الحذر");
-                }
-            } else if (currentAccountType === "🔄 جاري الكشف..." && currentType) {
-                currentAccountType = currentType;
-                lastAccountType = currentType;
-                const accountEl = document.getElementById('current-account-display');
-                if (accountEl) {
-                    accountEl.innerText = currentType === "DEMO" ? "🔸 تجريبي" : "✅ حقيقي";
-                    accountEl.style.color = currentType === "DEMO" ? "#ffaa66" : "#00ffaa";
-                }
+    function checkAndUpdate() {
+        // البحث في النصوص العلوية فقط لزيادة السرعة والدقة
+        const headerText = document.querySelector('header')?.innerText || document.body.innerText;
+        
+        const isDemo = headerText.includes("Demo") || headerText.includes("تجريبي") || headerText.includes("DEMO");
+        const currentType = isDemo ? "DEMO" : "LIVE";
+
+        // تحديث فقط إذا تغير النوع فعلياً
+        if (currentType !== lastAccountType) {
+            lastAccountType = currentType;
+            currentAccountType = currentType;
+            
+            // تحديث الواجهة
+            const accountEl = document.getElementById('current-account-display');
+            if (accountEl) {
+                accountEl.innerText = currentType === "DEMO" ? "🔸 تجريبي" : "✅ حقيقي";
+                accountEl.style.color = currentType === "DEMO" ? "#ffaa66" : "#00ffaa";
+            }
+            
+            // تسجيل في الكونسول
+            if (currentType === "DEMO") {
+                console.log("%c[الحساب]: حساب تجريبي 🔸", "color: orange; font-weight: bold;");
+            } else {
+                console.log("%c[الحساب]: حساب حقيقي ✅", "color: #00ff00; font-weight: bold;");
+                console.warn("⚠️ تنبيه: أنت تستخدم حساب حقيقي - توخ الحذر");
             }
         }
+    }
 
+    // فحص فوري عند التشغيل
+    checkAndUpdate();
+
+    // مراقبة أي تغيير في الصفحة
+    if (accountObserver) accountObserver.disconnect();
+    accountObserver = new MutationObserver(() => {
         checkAndUpdate();
-        
-        if (accountObserver) accountObserver.disconnect();
-        accountObserver = new MutationObserver(() => checkAndUpdate());
-        accountObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
-    }
+    });
+    accountObserver.observe(document.body, {
+        childList: true,
+        subtree: true,
+        characterData: true
+    });
 
-    function updateAutoDetectionUI() {
-        const assetEl = document.getElementById('current-asset-display');
-        if (assetEl && currentAsset !== "🔄 جاري الكشف...") assetEl.innerText = currentAsset;
-        
-        const timeframeEl = document.getElementById('st-tf-value');
-        if (timeframeEl && currentTimeframeAuto !== "🔄 جاري الكشف...") timeframeEl.innerText = currentTimeframeAuto;
-        
-        const accountEl = document.getElementById('current-account-display');
-        if (accountEl && currentAccountType !== "🔄 جاري الكشف...") {
-            accountEl.innerText = currentAccountType === "DEMO" ? "🔸 تجريبي" : "✅ حقيقي";
-            accountEl.style.color = currentAccountType === "DEMO" ? "#ffaa66" : "#00ffaa";
-        }
-    }
+    console.log("✅ نظام رصد الحساب يعمل..");
+}
 
     // =====================================================
     // ========== 300+ استراتيجية محسنة ==========
@@ -1112,7 +1106,7 @@
         searchStatusDiv = document.createElement('div');
         searchStatusDiv.id = 'search-status';
         searchStatusDiv.style.cssText = `position:fixed;bottom:100px;right:20px;background:linear-gradient(135deg,#00ffaa22,#00ffaa);backdrop-filter:blur(10px);padding:8px 16px;border-radius:30px;z-index:999991;direction:rtl;font-size:12px;color:#fff;font-weight:bold;animation:pulse 1.5s infinite;`;
-        searchStatusDiv.innerHTML = `🔍 جاري البحث عن إشارات | ${ac} استراتيجية نشطة`;
+        searchStatusDiv.innerHTML = `🔍 جاري البحث عن إشارة ...`;
         document.body.appendChild(searchStatusDiv);
         
         let pulseStyle = document.createElement('style');
@@ -1317,7 +1311,7 @@
                 <div id="current-timeframe-display" style="background:linear-gradient(135deg,#00000066,#00000033);border-radius:12px;padding:8px;text-align:center;font-size:10px;margin-bottom:10px;"></div>
                 <div id="fib-levels" style="background:linear-gradient(135deg,#00000066,#00000033);border-radius:12px;padding:8px;margin-bottom:10px;font-size:9px;"></div>
                 <div style="display:flex;gap:10px;margin-bottom:10px;">
-                    <button id="start-btn" style="flex:1;padding:10px;background:linear-gradient(95deg,#00aa44,#008833);border:none;border-radius:20px;color:#fff;cursor:pointer;font-weight:bold;transition:transform 0.2s;">▶ بدء التحليل</button>
+                    <button id="start-btn" style="flex:1;padding:10px;background:linear-gradient(95deg,#00aa44,#008833);border:none;border-radius:20px;color:#fff;cursor:pointer;font-weight:bold;transition:transform 0.2s;">▶ بدء التداول</button>
                     <button id="stop-btn" style="flex:1;padding:10px;background:linear-gradient(95deg,#8b2c2c,#661111);border:none;border-radius:20px;color:#fff;cursor:pointer;display:none;font-weight:bold;transition:transform 0.2s;">⏹ إيقاف التحليل</button>
                 </div>
                 <div id="status-text" style="background:#00000066;border-radius:12px;padding:8px;text-align:center;font-size:11px;color:#ffd966;font-weight:bold;">🔴 متوقف</div>
@@ -1458,7 +1452,7 @@
         getActiveCount: () => getActiveStrategies().length,
         showUI: showUI,
         hideUI: hideUI,
-        version: "V5.0 - 300+ استراتيجية",
+        version: "النسخة الأولى من بوت التداول",
         strategies: STRATEGIES.length,
         getTrades: () => [...tradesHistory],
         getCurrentTrade: () => currentTrade
