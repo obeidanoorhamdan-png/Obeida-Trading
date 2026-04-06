@@ -12,7 +12,7 @@
     // ========== إعدادات ==========
     const SETTINGS = {
         checkInterval: 3000,
-        signalDuration: 8000,
+        signalDuration: 5000,
         minConfidence: 75,
         takeProfitPips: 50,
         stopLossPips: 25,
@@ -2045,10 +2045,10 @@
         
         let ui=document.createElement('div');
         ui.id='obeida-ui';
-        ui.style.cssText=`position:fixed;bottom:20px;right:20px;width:450px;max-width:calc(100% - 30px);
+        ui.style.cssText = `position:fixed;bottom:20px;right:20px;width:380px;max-width:calc(100% - 25px);max-height:90vh;overflow-y:auto;
             background:linear-gradient(145deg,#0a0f1e,#020408);border-radius:28px;
             border:1px solid rgba(255,217,102,0.3);z-index:999990;direction:rtl;
-            font-family:'Tahoma','Segoe UI',monospace;box-shadow:0 15px 40px rgba(0,0,0,0.6);
+            font-family:'Tahoma','Segoe UI',monospace;box-shadow:0 10px 30px rgba(0,0,0,0.6);
             backdrop-filter:blur(8px);`;
         
         ui.innerHTML=`
@@ -2067,7 +2067,7 @@
                     </div>
                 </div>
             </div>
-            <div id="ui-main-content" style="padding:16px;">
+            <div id="ui-main-content" style="padding:15px;">
                 <div style="background:linear-gradient(135deg,#00ffaa11,#00000044);border-radius:20px;padding:12px;text-align:center;margin-bottom:12px;border:1px solid #00ffaa33;">
                     <div style="font-size:9px;color:#aaa;">💰 السعر الحالي</div>
                     <div style="display:flex;justify-content:center;align-items:baseline;gap:12px;margin-top:5px;">
