@@ -1711,7 +1711,7 @@
                     <div style="display:flex;align-items:center;gap:10px;">
                         <span style="font-size:15px;">🔥</span>
                         <div>
-                            <h3 style="color:#ffd966;margin:0;font-size:15px;font-weight:bold;">Obeida Trading BOT V7</h3>
+                            <h3 style="color:#ffd966;margin:0;font-size:15px;font-weight:bold;">Obeida Trading BOT V2</h3>
                             <div style="font-size:9px;color:#88ccff;">${STRATEGIES.length}+ استراتيجية | شارت حقيقي</div>
                         </div>
                     </div>
