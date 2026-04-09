@@ -1,9 +1,9 @@
-// ============================================
-// Obeida Trading Bot - النسخة المحسّنة V7.0 ULTIMATE
-// 100+ استراتيجية محسّنة حسب نوع التداول - سحب شارت حقيقي 100%
-// ============================================
 (function(){
     'use strict';
+
+    // ========== منع التعارض ==========
+    if (window.__obeidaBotActive) return;
+    window.__obeidaBotActive = true;
 
     // ========== كلمة المرور ==========
     const BOT_PASSWORD = "@ObeidaTrading";
@@ -20,7 +20,8 @@
         useFibonacciLevels: true,
         useSmartEntry: true,
         useMultiTimeframeConfirm: true,
-        useSupplyDemand: true
+        useSupplyDemand: true,
+        minLiquidityPercent: 65
     };
 
     // ========== متغيرات التشغيل ==========
@@ -38,13 +39,13 @@
     let currentAsset = "🔄 جاري الكشف...";
     let currentAccountType = "🔄 جاري الكشف...";
     let currentTimeframeAuto = "🔄 جاري الكشف...";
-    let lastAccountType = "";
+    let currentLiquidity = 100;
     
     // ========== متغيرات السعر ==========
     let currentPrice = 0;
     let lastPrice = 0;
     let priceHistory = [];
-    let volumeHistory = [];
+    let lastMinuteTimestamp = null;
     
     // ========== مناطق الطلب والعرض ==========
     let demandZones = [];
@@ -53,163 +54,271 @@
     
     // ========== مستويات فيبوناتشي ==========
     let fibonacciLevels = {
-        level0: 0,
-        level236: 0,
-        level382: 0,
-        level500: 0,
-        level618: 0,
-        level786: 0,
-        level1000: 0,
-        extension127: 0,
-        extension1618: 0
+        level0: 0, level236: 0, level382: 0, level500: 0,
+        level618: 0, level786: 0, level1000: 0,
+        extension127: 0, extension1618: 0
     };
     
     let swingHigh = 0;
     let swingLow = 0;
-    
-    // ========== مراقبي MutationObserver ==========
-    let assetObserver = null;
-    let timeframeObserver = null;
-    let accountObserver = null;
-    let lastAsset = "";
-    let lastTimeframe = "";
 
     // ========== الفريمات المدعومة ==========
     const TIMEFRAMES = {
-        "5s":  { seconds: 5,     waitSeconds: 10,     name: "5 ثوان",   category: "scalp_ultra", weight: 0.70, order: 1 },
-        "10s": { seconds: 10,    waitSeconds: 20,     name: "10 ثوان",  category: "scalp_ultra", weight: 0.72, order: 2 },
-        "15s": { seconds: 15,    waitSeconds: 30,     name: "15 ثانية", category: "scalp_ultra", weight: 0.75, order: 3 },
-        "30s": { seconds: 30,    waitSeconds: 60,     name: "30 ثانية", category: "scalp_ultra", weight: 0.78, order: 4 },
-        "1m":  { seconds: 60,    waitSeconds: 120,    name: "1 دقيقة",  category: "scalp_fast",  weight: 0.82, order: 5 },
-        "2m":  { seconds: 120,   waitSeconds: 240,    name: "2 دقائق",  category: "scalp_fast",  weight: 0.85, order: 6 },
-        "3m":  { seconds: 180,   waitSeconds: 360,    name: "3 دقائق",  category: "scalp_fast",  weight: 0.87, order: 7 },
-        "5m":  { seconds: 300,   waitSeconds: 600,    name: "5 دقائق",  category: "intraday",    weight: 0.90, order: 8 },
-        "10m": { seconds: 600,   waitSeconds: 1200,   name: "10 دقائق", category: "intraday",    weight: 0.92, order: 9 },
-        "15m": { seconds: 900,   waitSeconds: 1800,   name: "15 دقيقة", category: "intraday",    weight: 0.94, order: 10 },
-        "30m": { seconds: 1800,  waitSeconds: 3600,   name: "30 دقيقة", category: "intraday",    weight: 0.95, order: 11 },
-        "1h":  { seconds: 3600,  waitSeconds: 7200,   name: "1 ساعة",   category: "swing",       weight: 0.96, order: 12 },
-        "4h":  { seconds: 14400, waitSeconds: 28800,  name: "4 ساعات",  category: "swing",       weight: 0.95, order: 13 },
-        "1d":  { seconds: 86400, waitSeconds: 172800, name: "يومي",     category: "position",    weight: 0.93, order: 14 }
+        "5s":  { seconds: 5, waitSeconds: 10, name: "5 ثوان", category: "scalp_ultra", weight: 0.70, order: 1 },
+        "10s": { seconds: 10, waitSeconds: 20, name: "10 ثوان", category: "scalp_ultra", weight: 0.72, order: 2 },
+        "15s": { seconds: 15, waitSeconds: 30, name: "15 ثانية", category: "scalp_ultra", weight: 0.75, order: 3 },
+        "30s": { seconds: 30, waitSeconds: 60, name: "30 ثانية", category: "scalp_ultra", weight: 0.78, order: 4 },
+        "1m":  { seconds: 60, waitSeconds: 120, name: "1 دقيقة", category: "scalp_fast", weight: 0.82, order: 5 },
+        "2m":  { seconds: 120, waitSeconds: 240, name: "2 دقائق", category: "scalp_fast", weight: 0.85, order: 6 },
+        "3m":  { seconds: 180, waitSeconds: 360, name: "3 دقائق", category: "scalp_fast", weight: 0.87, order: 7 },
+        "5m":  { seconds: 300, waitSeconds: 600, name: "5 دقائق", category: "intraday", weight: 0.90, order: 8 },
+        "10m": { seconds: 600, waitSeconds: 1200, name: "10 دقائق", category: "intraday", weight: 0.92, order: 9 },
+        "15m": { seconds: 900, waitSeconds: 1800, name: "15 دقيقة", category: "intraday", weight: 0.94, order: 10 },
+        "30m": { seconds: 1800, waitSeconds: 3600, name: "30 دقيقة", category: "intraday", weight: 0.95, order: 11 },
+        "1h":  { seconds: 3600, waitSeconds: 7200, name: "1 ساعة", category: "swing", weight: 0.96, order: 12 },
+        "4h":  { seconds: 14400, waitSeconds: 28800, name: "4 ساعات", category: "swing", weight: 0.95, order: 13 },
+        "1d":  { seconds: 86400, waitSeconds: 172800, name: "يومي", category: "position", weight: 0.93, order: 14 }
     };
 
     // =====================================================
-    // ========== رادار السعر + سحب الشارت الحقيقي ==========
+    // ========== نظام المراقبة الموحد ==========
     // =====================================================
-    function initPriceRadar() {
-        console.log("%c 🛰️ جاري كشف العملة والسعر ... ", "color: #00ffcc; font-weight: bold;");
-
-        function getTargetAssetName() {
-            const assetElement = document.querySelector('.T4GAK');
-            if (!assetElement) return null;
-            
-            let rawName = assetElement.innerText.split('\n')[0]; 
-            let cleanName = rawName.replace(/[^a-zA-Z]/g, "").toUpperCase();
-            
-            if (rawName.includes("OTC")) {
-                cleanName = cleanName.replace("OTC", "") + "_otc";
-            }
-            return cleanName;
-        }
-
-        const originalSend = WebSocket.prototype.send;
-        WebSocket.prototype.send = function(data) {
-            if (!this.singlePriceObserver) {
-                this.addEventListener('message', async (event) => {
-                    let msg = event.data;
-                    let textData = "";
-
-                    if (msg instanceof Blob) {
-                        textData = await msg.text();
-                    } else if (msg instanceof ArrayBuffer) {
-                        textData = new TextDecoder().decode(msg);
-                    } else {
-                        textData = msg.toString();
+    
+    // كشف الفريم من Wy5Or
+    function checkFrameFromGCnIH() {
+        const target = document.querySelector('.Wy5Or');
+        if (target) {
+            const rawText = target.innerText.trim();
+            const timeMatch = rawText.match(/[0-9]{1,2}[smhd]/);
+            if (timeMatch) {
+                let currentTF = timeMatch[0];
+                if (currentTF !== selectedTimeframe && TIMEFRAMES[currentTF]) {
+                    selectedTimeframe = currentTF;
+                    currentTimeframeAuto = currentTF;
+                    console.log(`%c 🎯 الفريم: %c ${currentTF} `,
+                        "color: white; background: #2c3e50; padding: 5px;",
+                        "color: white; background: #e67e22; padding: 5px; font-weight: bold; border-radius: 4px;");
+                    
+                    const timeframeEl = document.getElementById('st-tf-value');
+                    if (timeframeEl) timeframeEl.innerText = currentTF;
+                    
+                    const timeframeDisplay = document.getElementById('current-timeframe-display');
+                    if (timeframeDisplay && TIMEFRAMES[currentTF]) {
+                        let config = TIMEFRAMES[currentTF];
+                        let categoryLabels = {
+                            scalp_ultra: "⚡ سكالبينج فائق السرعة",
+                            scalp_fast: "🔥 سكالبينج سريع",
+                            intraday: "📈 تداول يومي",
+                            swing: "🌊 تداول تأرجح",
+                            position: "🏔 تداول طويل الأمد"
+                        };
+                        let catLabel = categoryLabels[config.category] || "";
+                        let activeCount = getActiveStrategies().length;
+                        timeframeDisplay.innerHTML = `📊 ${config.name} (${currentTF}) | ${catLabel}<br><span style="color:#88ccff;font-size:9px;">${activeCount} استراتيجية | انتظار ${config.waitSeconds} ثانية</span>`;
                     }
+                    
+                    resetAnalysis();
+                }
+            }
+        }
+    }
 
-                    try {
-                        const activeAsset = getTargetAssetName();
-                        if (!activeAsset) return;
+    // كشف العملة من xfLZW
+    function checkAssetFromXfLZW() {
+        const assetEl = document.querySelector('.xfLZW');
+        if (assetEl) {
+            let assetName = assetEl.innerText.trim().split('\n')[0];
+            if (assetName && assetName !== currentAsset) {
+                if (currentAsset !== "🔄 جاري الكشف...") {
+                    console.log("%c🔄 تم تغيير العملة، إعادة تعيين التحليل...", "color: #ff9800; font-weight: bold;");
+                    resetAnalysis();
+                }
+                currentAsset = assetName;
+                console.log(`%c 💎 العملة: %c ${assetName} `,
+                    "color: white; background: #34495e; padding: 5px;",
+                    "color: white; background: #27ae60; padding: 5px; font-weight: bold; border-radius: 4px;");
+                
+                const assetDisplay = document.getElementById('current-asset-display');
+                if (assetDisplay) assetDisplay.innerText = assetName;
+            }
+        }
+    }
 
-                        if (textData.includes(activeAsset)) {
-                            const priceMatch = textData.match(/(\d+\.\d{4,})/);
+    // كشف السيولة من gDH53
+    function checkLiquidityFromGdh53() {
+        const liqEl = document.querySelector('.gDH53');
+        if (liqEl) {
+            let liquidityText = liqEl.innerText.trim();
+            let liquidityValue = parseInt(liquidityText.replace(/[^0-9]/g, "")) || 100;
+            currentLiquidity = liquidityValue;
+            
+            const liquidityDisplay = document.getElementById('liquidity-display');
+            if (liquidityDisplay) {
+                let color = liquidityValue >= 80 ? '#27ae60' : (liquidityValue >= 65 ? '#f39c12' : '#e74c3c');
+                liquidityDisplay.innerHTML = `💧 السيولة: ${liquidityText}`;
+                liquidityDisplay.style.color = color;
+            }
+            
+            if (liquidityValue < SETTINGS.minLiquidityPercent) {
+                console.warn(`%c ⚠️ تحذير: السيولة منخفضة (${liquidityValue}%)`, "color: #ff4d4d; font-weight: bold;");
+            }
+        }
+    }
+
+    // كشف نوع الحساب
+    function checkAccountTypeUniversal() {
+        const bodyText = document.body.innerText;
+        const isDemo = /Demo|تجريبي|DEMO/i.test(bodyText);
+        let currentType = isDemo ? "DEMO" : "LIVE";
+        
+        if (currentType !== currentAccountType && currentAccountType !== "🔄 جاري الكشف...") {
+            currentAccountType = currentType;
+            const accountEl = document.getElementById('current-account-display');
+            if (accountEl) {
+                accountEl.innerText = currentType === "DEMO" ? "🔸 تجريبي" : "✅ حقيقي";
+                accountEl.style.color = currentType === "DEMO" ? "#ffaa66" : "#00ffaa";
+            }
+            console.log(`%c 👤 الحساب: %c ${currentType === "DEMO" ? "تجريبي 🔸" : "حقيقي ✅"} `,
+                "color: white; background: #34495e; padding: 5px;",
+                `color: white; background: ${currentType === "DEMO" ? "#e67e22" : "#27ae60"}; padding: 5px; font-weight: bold; border-radius: 4px;`);
+        } else if (currentAccountType === "🔄 جاري الكشف...") {
+            currentAccountType = currentType;
+            const accountEl = document.getElementById('current-account-display');
+            if (accountEl) {
+                accountEl.innerText = currentType === "DEMO" ? "🔸 تجريبي" : "✅ حقيقي";
+                accountEl.style.color = currentType === "DEMO" ? "#ffaa66" : "#00ffaa";
+            }
+        }
+    }
+
+    // =====================================================
+    // ========== رادار السعر + سحب الشارت ==========
+    // =====================================================
+    
+    function updateLiveCandle(price, timestamp) {
+        if (priceHistory.length === 0) return;
+        
+        const currentCandleTime = Math.floor(timestamp / 60000) * 60000;
+        let lastCandle = priceHistory[priceHistory.length - 1];
+        
+        if (lastCandle.time !== currentCandleTime) {
+            priceHistory.push({ 
+                time: currentCandleTime, 
+                open: price, 
+                high: price, 
+                low: price, 
+                close: price,
+                volume: 1000
+            });
+            if (priceHistory.length > 200) priceHistory.shift();
+            console.log("%c 🚀 شمعة جديدة بدأت! 🚀 ", "color: #fff; background: #e74c3c; font-size: 16px; font-weight: bold;");
+        } else {
+            lastCandle.close = price;
+            if (price > lastCandle.high) lastCandle.high = price;
+            if (price < lastCandle.low) lastCandle.low = price;
+        }
+    }
+
+    function initPriceRadar() {
+        console.log("%c 🛰️ جاري كشف السعر ... ", "color: #00ffcc; font-weight: bold;");
+
+        // اختراق TextDecoder
+        const originalDecode = TextDecoder.prototype.decode;
+        TextDecoder.prototype.decode = function(buffer) {
+            const text = originalDecode.apply(this, arguments);
+            if (text && text.length > 500 && text.includes('[[')) {
+                try {
+                    const matches = text.match(/\[\[.*?\]\]/g);
+                    if (matches) {
+                        const rawData = JSON.parse(matches[0]);
+                        if (rawData && rawData.length > 50) {
+                            const newHistory = rawData.map(c => {
+                                let prices = c.filter(val => typeof val === 'number' && val > 10);
+                                return {
+                                    time: c[0] * 1000,
+                                    open: prices[0] || 0,
+                                    high: Math.max(...prices) || 0,
+                                    low: Math.min(...prices) || 0,
+                                    close: prices[prices.length - 1] || 0,
+                                    volume: c[5] || 1000
+                                };
+                            }).filter(c => c.open > 0 && c.close > 0);
                             
-                            if (priceMatch) {
-                                const newPrice = parseFloat(priceMatch[0]);
+                            if (newHistory.length > 0) {
+                                priceHistory = newHistory.slice(-200);
+                                console.log("%c ✅ تم تحديث بيانات الشموع: " + priceHistory.length + " شمعة", "color: #00ff00;");
+                                updateFibonacciLevels();
+                                detectSupplyDemandZones();
+                            }
+                        }
+                    }
+                } catch(e) {}
+            }
+            return text;
+        };
+
+        // اعتراض WebSocket
+        const originalWebSocket = window.WebSocket;
+        window.WebSocket = function(url, protocols) {
+            const ws = new originalWebSocket(url, protocols);
+            
+            ws.addEventListener('message', async function(event) {
+                let msg = event.data;
+                let textData = "";
+                
+                if (msg instanceof Blob) {
+                    textData = await msg.text();
+                } else if (msg instanceof ArrayBuffer) {
+                    textData = new TextDecoder().decode(msg);
+                } else {
+                    textData = msg.toString();
+                }
+                
+                try {
+                    if (textData && textData.includes('quotes/stream')) {
+                        const startIdx = textData.indexOf('{');
+                        const endIdx = textData.lastIndexOf('}');
+                        if (startIdx !== -1 && endIdx !== -1) {
+                            const cleanJson = JSON.parse(textData.substring(startIdx, endIdx + 1));
+                            if (cleanJson && cleanJson.data) {
+                                const newPrice = parseFloat(cleanJson.data[2]);
+                                const serverTime = cleanJson.data[1];
                                 currentPrice = newPrice;
-                                
-                                priceHistory.push({close: currentPrice, time: Date.now(), high: currentPrice + 0.0001, low: currentPrice - 0.0001});
-                                if (priceHistory.length > 500) priceHistory.shift();
-                                
+                                updateLiveCandle(newPrice, serverTime * 1000);
                                 updateFibonacciLevels();
                                 detectSupplyDemandZones();
                                 
-                                let diff = lastPrice === 0 ? 0 : (currentPrice - lastPrice).toFixed(5);
+                                let diff = lastPrice === 0 ? 0 : (newPrice - lastPrice).toFixed(5);
                                 let color = diff > 0 ? "#27ae60" : (diff < 0 ? "#e74c3c" : "#2c3e50");
-
+                                
                                 console.log(
-                                    `%c 🎯 Asset: ${activeAsset} %c Price: ${currentPrice} %c Speed: ${diff} `,
-                                    "color: white; background: #2980b9; padding: 6px; font-weight: bold; border-radius: 5px 0 0 5px;",
-                                    `color: white; background: ${color}; padding: 6px; font-weight: bold;`,
-                                    "color: white; background: #34495e; padding: 6px; font-weight: bold; border-radius: 0 5px 5px 0;"
+                                    `%c 🎯 Price: ${newPrice} %c Speed: ${diff} `,
+                                    `color: white; background: ${color}; padding: 6px; font-weight: bold; border-radius: 5px;`
                                 );
                                 
-                                updatePriceDisplay(currentPrice, diff);
+                                updatePriceDisplay(newPrice, diff);
                                 
                                 if (currentTrade && currentTrade.status === "open") {
-                                    checkTradeExit(currentPrice);
+                                    checkTradeExit(newPrice);
                                 }
                                 
-                                lastPrice = currentPrice;
+                                lastPrice = newPrice;
                             }
                         }
-                        
-                        if (textData && textData.length > 500 && textData.includes('[[')) {
-                            try {
-                                const matches = textData.match(/\[\[.*?\]\]/g);
-                                if (matches) {
-                                    const rawData = JSON.parse(matches[0]);
-                                    if (rawData && rawData.length > 50) {
-                                        const newHistory = rawData.map(c => {
-                                            let prices = c.filter(val => typeof val === 'number' && val > 10);
-                                            return {
-                                                time: c[0] * 1000,
-                                                open: prices[0] || 0,
-                                                high: Math.max(...prices) || 0,
-                                                low: Math.min(...prices) || 0,
-                                                close: prices[prices.length - 1] || 0,
-                                                volume: c[5] || 1000
-                                            };
-                                        }).filter(c => c.open > 0 && c.close > 0);
-                                        
-                                        if (newHistory.length > 0) {
-                                            priceHistory = newHistory.slice(-200);
-                                            console.log("%c ✅ تم تحديث بيانات الشموع: " + priceHistory.length + " شمعة", "color: #00ff00; font-size: 12px;");
-                                            updateFibonacciLevels();
-                                            detectSupplyDemandZones();
-                                        }
-                                    }
-                                }
-                            } catch(e) {}
-                        }
-                    } catch (e) {}
-                });
-                this.singlePriceObserver = true;
-            }
-            return originalSend.apply(this, arguments);
+                    }
+                } catch(e) {}
+            });
+            
+            return ws;
         };
+        
+        window.WebSocket.prototype = originalWebSocket.prototype;
     }
-
+    
     function getChartData() {
-        if (priceHistory.length === 0) {
-            return [];
-        }
+        if (priceHistory.length === 0) return [];
         return priceHistory.map(c => ({
-            time: c.time,
-            open: c.open,
-            high: c.high,
-            low: c.low,
-            close: c.close,
-            volume: c.volume || 1000
+            time: c.time, open: c.open, high: c.high, low: c.low, close: c.close, volume: c.volume || 1000
         }));
     }
 
@@ -228,94 +337,50 @@
         for (let i = 20; i < prices.length - 10; i++) {
             let zoneLow = lows[i];
             let zoneHigh = highs[i];
-            
             for (let j = i - 20; j < i; j++) {
                 if (lows[j] < zoneLow) zoneLow = lows[j];
                 if (highs[j] > zoneHigh) zoneHigh = highs[j];
             }
-            
             let range = zoneHigh - zoneLow;
             let demandStrength = 0;
-            
             for (let k = i + 1; k < Math.min(i + 15, prices.length); k++) {
-                if (prices[k] >= zoneLow && prices[k] <= zoneLow + range * 0.3) {
-                    demandStrength++;
-                }
+                if (prices[k] >= zoneLow && prices[k] <= zoneLow + range * 0.3) demandStrength++;
             }
-            
             if (demandStrength >= 3 && range > 0.0005) {
-                demandZones.push({
-                    low: zoneLow,
-                    high: zoneLow + range * 0.3,
-                    strength: demandStrength,
-                    price: zoneLow
-                });
+                demandZones.push({ low: zoneLow, high: zoneLow + range * 0.3, strength: demandStrength, price: zoneLow });
             }
         }
         
         for (let i = 20; i < prices.length - 10; i++) {
             let zoneLow = lows[i];
             let zoneHigh = highs[i];
-            
             for (let j = i - 20; j < i; j++) {
                 if (lows[j] < zoneLow) zoneLow = lows[j];
                 if (highs[j] > zoneHigh) zoneHigh = highs[j];
             }
-            
             let range = zoneHigh - zoneLow;
             let supplyStrength = 0;
-            
             for (let k = i + 1; k < Math.min(i + 15, prices.length); k++) {
-                if (prices[k] >= zoneHigh - range * 0.3 && prices[k] <= zoneHigh) {
-                    supplyStrength++;
-                }
+                if (prices[k] >= zoneHigh - range * 0.3 && prices[k] <= zoneHigh) supplyStrength++;
             }
-            
             if (supplyStrength >= 3 && range > 0.0005) {
-                supplyZones.push({
-                    low: zoneHigh - range * 0.3,
-                    high: zoneHigh,
-                    strength: supplyStrength,
-                    price: zoneHigh
-                });
+                supplyZones.push({ low: zoneHigh - range * 0.3, high: zoneHigh, strength: supplyStrength, price: zoneHigh });
             }
         }
         
         for (let i = 10; i < prices.length - 5; i++) {
-            let prevHigh = highs[i-1];
-            let prevLow = lows[i-1];
-            let currentHigh = highs[i];
-            let currentLow = lows[i];
-            
+            let prevHigh = highs[i-1], prevLow = lows[i-1];
+            let currentHigh = highs[i], currentLow = lows[i];
             if (currentLow > prevHigh && prices[i] > prices[i-1]) {
-                orderBlocks.push({
-                    type: "BULLISH",
-                    low: prevLow,
-                    high: prevHigh,
-                    price: prevHigh,
-                    strength: Math.min(100, (currentHigh - currentLow) * 10000)
-                });
+                orderBlocks.push({ type: "BULLISH", low: prevLow, high: prevHigh, price: prevHigh, strength: Math.min(100, (currentHigh - currentLow) * 10000) });
             }
-            
             if (currentHigh < prevLow && prices[i] < prices[i-1]) {
-                orderBlocks.push({
-                    type: "BEARISH",
-                    low: prevLow,
-                    high: prevHigh,
-                    price: prevLow,
-                    strength: Math.min(100, (currentHigh - currentLow) * 10000)
-                });
+                orderBlocks.push({ type: "BEARISH", low: prevLow, high: prevHigh, price: prevLow, strength: Math.min(100, (currentHigh - currentLow) * 10000) });
             }
         }
         
-        demandZones = demandZones.filter((zone, index, self) => 
-            index === self.findIndex(z => Math.abs(z.price - zone.price) < 0.001)
-        ).slice(0, 5);
-        
-        supplyZones = supplyZones.filter((zone, index, self) => 
-            index === self.findIndex(z => Math.abs(z.price - zone.price) < 0.001)
-        ).slice(0, 5);
-        
+        demandZones = demandZones.filter((zone, index, self) => index === self.findIndex(z => Math.abs(z.price - zone.price) < 0.001)).slice(0, 5);
+        supplyZones = supplyZones.filter((zone, index, self) => index === self.findIndex(z => Math.abs(z.price - zone.price) < 0.001)).slice(0, 5);
         orderBlocks = orderBlocks.slice(0, 5);
         
         updateSupplyDemandDisplay();
@@ -329,24 +394,9 @@
             <div style="font-size:10px;color:#ffd966;margin-bottom:5px;">📊 مناطق الطلب والعرض</div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;font-size:8px;">`;
         
-        if (demandZones.length > 0) {
-            html += `<div style="color:#00ffaa;">🟢 طلب: ${demandZones[0].price.toFixed(5)}</div>`;
-        } else {
-            html += `<div style="color:#666;">🟢 طلب: --</div>`;
-        }
-        
-        if (supplyZones.length > 0) {
-            html += `<div style="color:#ff4466;">🔴 عرض: ${supplyZones[0].price.toFixed(5)}</div>`;
-        } else {
-            html += `<div style="color:#666;">🔴 عرض: --</div>`;
-        }
-        
-        if (orderBlocks.length > 0 && orderBlocks[0]) {
-            let obColor = orderBlocks[0].type === "BULLISH" ? "#00ffaa" : "#ff4466";
-            html += `<div style="color:${obColor};">📦 OB: ${orderBlocks[0].price.toFixed(5)}</div>`;
-        } else {
-            html += `<div style="color:#666;">📦 OB: --</div>`;
-        }
+        html += demandZones.length > 0 ? `<div style="color:#00ffaa;">🟢 طلب: ${demandZones[0].price.toFixed(5)}</div>` : `<div style="color:#666;">🟢 طلب: --</div>`;
+        html += supplyZones.length > 0 ? `<div style="color:#ff4466;">🔴 عرض: ${supplyZones[0].price.toFixed(5)}</div>` : `<div style="color:#666;">🔴 عرض: --</div>`;
+        html += orderBlocks.length > 0 ? `<div style="color:${orderBlocks[0].type === "BULLISH" ? "#00ffaa" : "#ff4466"};">📦 OB: ${orderBlocks[0].price.toFixed(5)}</div>` : `<div style="color:#666;">📦 OB: --</div>`;
         
         html += `</div></div>`;
         sdEl.innerHTML = html;
@@ -354,28 +404,20 @@
     
     function getNearestDemandZone(price) {
         if (demandZones.length === 0) return null;
-        let nearest = null;
-        let minDist = Infinity;
+        let nearest = null, minDist = Infinity;
         for (let zone of demandZones) {
             let dist = Math.abs(price - zone.price);
-            if (dist < minDist && price > zone.price) {
-                minDist = dist;
-                nearest = zone;
-            }
+            if (dist < minDist && price > zone.price) { minDist = dist; nearest = zone; }
         }
         return nearest;
     }
     
     function getNearestSupplyZone(price) {
         if (supplyZones.length === 0) return null;
-        let nearest = null;
-        let minDist = Infinity;
+        let nearest = null, minDist = Infinity;
         for (let zone of supplyZones) {
             let dist = Math.abs(price - zone.price);
-            if (dist < minDist && price < zone.price) {
-                minDist = dist;
-                nearest = zone;
-            }
+            if (dist < minDist && price < zone.price) { minDist = dist; nearest = zone; }
         }
         return nearest;
     }
@@ -383,65 +425,47 @@
     // ========== تحديث مستويات فيبوناتشي ==========
     function updateFibonacciLevels() {
         if (priceHistory.length < 30) return;
-        
         let recentPrices = priceHistory.slice(-100);
         swingHigh = Math.max(...recentPrices.map(p => p.high || p.close));
         swingLow = Math.min(...recentPrices.map(p => p.low || p.close));
-        
         let range = swingHigh - swingLow;
-        
         fibonacciLevels = {
-            level0: swingLow,
-            level236: swingLow + range * 0.236,
-            level382: swingLow + range * 0.382,
-            level500: swingLow + range * 0.5,
-            level618: swingLow + range * 0.618,
-            level786: swingLow + range * 0.786,
-            level1000: swingHigh,
-            extension127: swingHigh + range * 0.27,
-            extension1618: swingHigh + range * 0.618
+            level0: swingLow, level236: swingLow + range * 0.236, level382: swingLow + range * 0.382,
+            level500: swingLow + range * 0.5, level618: swingLow + range * 0.618,
+            level786: swingLow + range * 0.786, level1000: swingHigh,
+            extension127: swingHigh + range * 0.27, extension1618: swingHigh + range * 0.618
         };
-        
         updateFibonacciDisplay();
     }
     
     function updateFibonacciDisplay() {
         const fibEl = document.getElementById('fib-levels');
         if (fibEl) {
-            fibEl.innerHTML = `
-                <div style="background:#00000066;border-radius:12px;padding:8px;margin-bottom:10px;">
-                    <div style="font-size:9px;color:#ffd966;margin-bottom:4px;">📐 مستويات فيبوناتشي</div>
-                    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:3px;font-size:7px;">
-                        <div style="color:#ffd966;">0.236: ${fibonacciLevels.level236.toFixed(5)}</div>
-                        <div style="color:#ffaa66;">0.382: ${fibonacciLevels.level382.toFixed(5)}</div>
-                        <div style="color:#ff8866;">0.5: ${fibonacciLevels.level500.toFixed(5)}</div>
-                        <div style="color:#ff6688;">0.618: ${fibonacciLevels.level618.toFixed(5)}</div>
-                        <div style="color:#ff66aa;">0.786: ${fibonacciLevels.level786.toFixed(5)}</div>
-                        <div style="color:#00ffaa;">161.8%: ${fibonacciLevels.extension1618.toFixed(5)}</div>
-                    </div>
+            fibEl.innerHTML = `<div style="background:#00000066;border-radius:12px;padding:8px;margin-bottom:10px;">
+                <div style="font-size:9px;color:#ffd966;margin-bottom:4px;">📐 مستويات فيبوناتشي</div>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:3px;font-size:7px;">
+                    <div style="color:#ffd966;">0.236: ${fibonacciLevels.level236.toFixed(5)}</div>
+                    <div style="color:#ffaa66;">0.382: ${fibonacciLevels.level382.toFixed(5)}</div>
+                    <div style="color:#ff8866;">0.5: ${fibonacciLevels.level500.toFixed(5)}</div>
+                    <div style="color:#ff6688;">0.618: ${fibonacciLevels.level618.toFixed(5)}</div>
+                    <div style="color:#ff66aa;">0.786: ${fibonacciLevels.level786.toFixed(5)}</div>
+                    <div style="color:#00ffaa;">161.8%: ${fibonacciLevels.extension1618.toFixed(5)}</div>
                 </div>
-            `;
+            </div>`;
         }
     }
     
     function getOptimalEntry(price, direction) {
         if (!SETTINGS.useSmartEntry) return price;
-        
         if (direction === "CALL") {
             let demandZone = getNearestDemandZone(price);
-            if (demandZone && price > demandZone.price) {
-                return demandZone.price;
-            }
+            if (demandZone && price > demandZone.price) return demandZone.price;
             if (price <= fibonacciLevels.level382) return price;
-            if (price <= fibonacciLevels.level236) return price;
             return fibonacciLevels.level382;
         } else {
             let supplyZone = getNearestSupplyZone(price);
-            if (supplyZone && price < supplyZone.price) {
-                return supplyZone.price;
-            }
+            if (supplyZone && price < supplyZone.price) return supplyZone.price;
             if (price >= fibonacciLevels.level618) return price;
-            if (price >= fibonacciLevels.level786) return price;
             return fibonacciLevels.level618;
         }
     }
@@ -450,18 +474,13 @@
         if (!SETTINGS.useFibonacciLevels) {
             return direction === "CALL" ? entryPrice + SETTINGS.takeProfitPips/10000 : entryPrice - SETTINGS.takeProfitPips/10000;
         }
-        
         if (direction === "CALL") {
             let supplyZone = getNearestSupplyZone(entryPrice);
-            if (supplyZone && supplyZone.price > entryPrice) {
-                return supplyZone.price;
-            }
+            if (supplyZone && supplyZone.price > entryPrice) return supplyZone.price;
             return fibonacciLevels.level618;
         } else {
             let demandZone = getNearestDemandZone(entryPrice);
-            if (demandZone && demandZone.price < entryPrice) {
-                return demandZone.price;
-            }
+            if (demandZone && demandZone.price < entryPrice) return demandZone.price;
             return fibonacciLevels.level382;
         }
     }
@@ -470,18 +489,13 @@
         if (!SETTINGS.useFibonacciLevels) {
             return direction === "CALL" ? entryPrice - SETTINGS.stopLossPips/10000 : entryPrice + SETTINGS.stopLossPips/10000;
         }
-        
         if (direction === "CALL") {
             let demandZone = getNearestDemandZone(entryPrice);
-            if (demandZone && demandZone.price < entryPrice) {
-                return demandZone.price - 0.0002;
-            }
+            if (demandZone && demandZone.price < entryPrice) return demandZone.price - 0.0002;
             return fibonacciLevels.level236;
         } else {
             let supplyZone = getNearestSupplyZone(entryPrice);
-            if (supplyZone && supplyZone.price > entryPrice) {
-                return supplyZone.price + 0.0002;
-            }
+            if (supplyZone && supplyZone.price > entryPrice) return supplyZone.price + 0.0002;
             return fibonacciLevels.level786;
         }
     }
@@ -499,206 +513,18 @@
         }
     }
 
-    // ========== كشف العملة والفريم والحساب التلقائي ==========
-    function initAssetDetection() {
-        function updateAssetInfo(element) {
-            if (element) {
-                let assetName = element.innerText;
-                if (assetName !== currentAsset && currentAsset !== "🔄 جاري الكشف...") {
-                    console.log("%c🔄 تم تغيير العملة، إعادة تعيين التحليل...", "color: #ff9800; font-weight: bold;");
-                    resetAnalysis();
-                }
-                currentAsset = assetName;
-                console.log("%c[نظام التداول]: العملة الحالية هي: " + assetName, "color: #00d4ff; font-weight: bold;");
-                
-                const assetDisplay = document.getElementById('current-asset-display');
-                if (assetDisplay) {
-                    assetDisplay.innerText = assetName;
-                }
-            }
-        }
-
-        const targetNode = document.querySelector('.T4GAK');
-
-        if (targetNode) {
-            updateAssetInfo(targetNode);
-
-            if (assetObserver) assetObserver.disconnect();
-            assetObserver = new MutationObserver((mutationsList) => {
-                for (let mutation of mutationsList) {
-                    updateAssetInfo(targetNode);
-                }
-            });
-
-            assetObserver.observe(targetNode, { childList: true, subtree: true, characterData: true });
-            console.log("تم تفعيل الرصد التلقائي للعملة.");
-        } else {
-            console.error("لم يتم العثور على عنصر العملة");
-            setTimeout(() => {
-                const retryNode = document.querySelector('.T4GAK');
-                if (retryNode) {
-                    updateAssetInfo(retryNode);
-                    if (assetObserver) assetObserver.disconnect();
-                    assetObserver = new MutationObserver((mutationsList) => {
-                        for (let mutation of mutationsList) {
-                            updateAssetInfo(retryNode);
-                        }
-                    });
-                    assetObserver.observe(retryNode, { childList: true, subtree: true, characterData: true });
-                    console.log("تم تفعيل الرصد التلقائي للعملة (بعد المحاولة الثانية).");
-                }
-            }, 2000);
-        }
-    }
-
-    function initTimeframeDetection() {
-        function getLiveTimeframe() {
-            const tfSelectors = [
-                '.gmGcQ', 
-                '[class*="timeframe"]', 
-                '[class*="interval"]', 
-                '[class*="period"]',
-                '[class*="tf"]',
-                'button[class*="selected"]',
-                '.selected[class*="time"]'
-            ];
-            
-            let foundTF = null;
-            
-            for (let selector of tfSelectors) {
-                const elements = document.querySelectorAll(selector);
-                for (let el of elements) {
-                    const text = el.innerText.trim();
-                    if (/^(5s|10s|15s|30s|1m|2m|3m|5m|10m|15m|30m|1h|4h|1d)$/i.test(text)) {
-                        foundTF = text.toLowerCase();
-                        break;
-                    }
-                }
-                if (foundTF) break;
-            }
-            
-            if (!foundTF) {
-                const allText = document.body.innerText;
-                const match = allText.match(/(5s|10s|15s|30s|1m|2m|3m|5m|10m|15m|30m|1h|4h|1d)/i);
-                if (match) foundTF = match[0].toLowerCase();
-            }
-            
-            return foundTF;
-        }
-
-        function syncDisplay() {
-            const currentTF = getLiveTimeframe();
-            
-            if (currentTF && TIMEFRAMES[currentTF]) {
-                if (currentTF !== selectedTimeframe) {
-                    selectedTimeframe = currentTF;
-                    currentTimeframeAuto = currentTF;
-                    console.log("%c[الفريم]: " + currentTF + " - " + TIMEFRAMES[currentTF].name, "color: #ff9800; font-size: 14px; font-weight: bold;");
-                    resetAnalysis();
-                    
-                    const timeframeEl = document.getElementById('st-tf-value');
-                    if (timeframeEl) timeframeEl.innerText = currentTF;
-                    
-                    const timeframeDisplay = document.getElementById('current-timeframe-display');
-                    if (timeframeDisplay) {
-                        let config = TIMEFRAMES[currentTF];
-                        let categoryLabels = {
-                            scalp_ultra: "⚡ سكالبينج فائق السرعة",
-                            scalp_fast:  "🔥 سكالبينج سريع",
-                            intraday:    "📈 تداول يومي",
-                            swing:       "🌊 تداول تأرجح",
-                            position:    "🏔 تداول طويل الأمد"
-                        };
-                        let catLabel = categoryLabels[config.category] || "";
-                        let activeCount = getActiveStrategies().length;
-                        timeframeDisplay.innerHTML = `📊 ${config.name} (${currentTF}) | ${catLabel}<br><span style="color:#88ccff;font-size:9px;">${activeCount} استراتيجية | انتظار ${config.waitSeconds} ثانية</span>`;
-                    }
-                    
-                    if (botRunning) {
-                        const statusEl = document.getElementById('status-text');
-                        if (statusEl) statusEl.innerHTML = `🟢 يعمل | ${getActiveStrategies().length} استراتيجية | ${currentTF}`;
-                    }
-                }
-            } else if (currentTF && !selectedTimeframe) {
-                selectedTimeframe = currentTF;
-                currentTimeframeAuto = currentTF;
-                const timeframeEl = document.getElementById('st-tf-value');
-                if (timeframeEl) timeframeEl.innerText = currentTF;
-            } else if (!currentTF && !selectedTimeframe) {
-                currentTimeframeAuto = "❌ لم يتم اكتشافه";
-                const timeframeEl = document.getElementById('st-tf-value');
-                if (timeframeEl) timeframeEl.innerText = currentTimeframeAuto;
-            }
-        }
-
-        syncDisplay();
-        
-        if (timeframeObserver) timeframeObserver.disconnect();
-        timeframeObserver = new MutationObserver(() => syncDisplay());
-        timeframeObserver.observe(document.body, { childList: true, subtree: true, characterData: true });
-    }
-
-    function initAccountDetection() {
-        let lastAccountType = "";
-        
-        function checkAndNotify() {
-            const headerText = document.querySelector('header')?.innerText || document.body.innerText;
-            
-            const isDemo = headerText.includes("Demo") || headerText.includes("تجريبي") || headerText.includes("DEMO") || headerText.includes("demo");
-            const currentType = isDemo ? "DEMO" : "LIVE";
-            
-            if (currentType !== lastAccountType) {
-                lastAccountType = currentType;
-                currentAccountType = currentType === "DEMO" ? "DEMO" : "LIVE";
-                
-                const accountEl = document.getElementById('current-account-display');
-                if (accountEl) {
-                    accountEl.innerText = currentType === "DEMO" ? "🔸 تجريبي" : "✅ حقيقي";
-                    accountEl.style.color = currentType === "DEMO" ? "#ffaa66" : "#00ffaa";
-                }
-                
-                if (currentType === "DEMO") {
-                    console.log("%c[الحساب]: تم التحويل إلى الحساب التجريبي 🔸", "color: orange; font-size: 14px; font-weight: bold;");
-                } else {
-                    console.log("%c[الحساب]: تم التحويل إلى الحساب الحقيقي ✅", "color: #00ff00; font-size: 14px; font-weight: bold;");
-                }
-            } else if (currentAccountType === "🔄 جاري الكشف..." && currentType) {
-                currentAccountType = currentType === "DEMO" ? "DEMO" : "LIVE";
-                lastAccountType = currentType;
-                const accountEl = document.getElementById('current-account-display');
-                if (accountEl) {
-                    accountEl.innerText = currentType === "DEMO" ? "🔸 تجريبي" : "✅ حقيقي";
-                    accountEl.style.color = currentType === "DEMO" ? "#ffaa66" : "#00ffaa";
-                }
-            }
-        }
-        
-        checkAndNotify();
-        
-        if (accountObserver) accountObserver.disconnect();
-        accountObserver = new MutationObserver(() => {
-            checkAndNotify();
-        });
-        
-        accountObserver.observe(document.body, {
-            childList: true,
-            subtree: true,
-            characterData: true
-        });
-    }
-
     function resetAnalysis() {
         if (botRunning) {
             priceHistory = [];
             demandZones = [];
             supplyZones = [];
             orderBlocks = [];
-            console.log("%c✅ تم إعادة تعيين التحليل ", "color: #00ffaa; font-weight: bold;");
+            console.log("%c✅ تم إعادة تعيين التحليل", "color: #00ffaa; font-weight: bold;");
         }
     }
 
     // =====================================================
-    // ========== الاستراتيجيات المحسّنة حسب نوع التداول ==========
+    // ========== الاستراتيجيات (31 استراتيجية كاملة) ==========
     // =====================================================
 
     // ----- استراتيجيات سكالبينج فائق السرعة (scalp_ultra) -----
@@ -740,7 +566,6 @@
         if(candles.length < 3) return null;
         let last = candles[candles.length-1];
         let prev = candles[candles.length-2];
-        let prev2 = candles[candles.length-3];
         let body = Math.abs(last.close - last.open);
         let prevBody = Math.abs(prev.close - prev.open);
         if(last.close > last.open && body > prevBody * 1.5 && last.close > prev.high) {
@@ -879,11 +704,10 @@
         let macd = ema12 - ema26;
         let ema9 = closes.slice(-9).reduce((a,b) => a+b, 0) / 9;
         let hist = macd - ema9;
-        let prevMacd = 0;
         if(candles.length > 27) {
             let prevEma12 = closes.slice(-13,-1).reduce((a,b) => a+b, 0) / 12;
             let prevEma26 = closes.slice(-27,-1).reduce((a,b) => a+b, 0) / 26;
-            prevMacd = prevEma12 - prevEma26;
+            let prevMacd = prevEma12 - prevEma26;
             let prevEma9 = closes.slice(-10,-1).reduce((a,b) => a+b, 0) / 9;
             let prevHist = prevMacd - prevEma9;
             if(hist > 0 && prevHist <= 0) return {signal:"CALL", confidence: 91, strength: "قوية", reason: "تقاطع MACD صاعد"};
@@ -1306,24 +1130,18 @@
     strategy_Multi_ShootingStar._name = "Multi_ShootingStar";
     strategy_Multi_ShootingStar.category = "all";
 
-    // تجميع جميع الاستراتيجيات
+    // ========== تجميع جميع الاستراتيجيات ==========
     const STRATEGIES = [
-        // scalp_ultra (6 استراتيجيات)
         strategy_UltraScalp_RSI, strategy_UltraScalp_Momentum, strategy_UltraScalp_PriceAction,
         strategy_UltraScalp_Stochastic, strategy_UltraScalp_Bollinger_Bandit, strategy_UltraScalp_Volume_Burst,
-        // scalp_fast (5 استراتيجيات)
         strategy_FastScalp_RSI_MACD, strategy_FastScalp_CCI_Reversal, strategy_FastScalp_Williams,
         strategy_FastScalp_Engulfing, strategy_FastScalp_MACD_Cross,
-        // intraday (5 استراتيجيات)
         strategy_Intraday_RSI_Divergence, strategy_Intraday_MACD_Divergence, strategy_Intraday_Support_Resistance_Break,
         strategy_Intraday_Bollinger_Squeeze, strategy_Intraday_MovingAverage_Crossover,
-        // swing (5 استراتيجيات)
         strategy_Swing_Fibonacci_Retracement, strategy_Swing_OrderBlock, strategy_Swing_DemandSupply,
         strategy_Swing_Ichimoku, strategy_Swing_ADX_Trend,
-        // position (5 استراتيجيات)
         strategy_Position_Monthly_Trend, strategy_Position_Accumulation_Distribution, strategy_Position_Monthly_Pivot,
         strategy_Position_Volume_Accumulation, strategy_Position_RSI_Extreme,
-        // استراتيجيات متعددة الاستخدامات (5 استراتيجيات)
         strategy_Multi_PinBar, strategy_Multi_Doji_Reversal, strategy_Multi_MorningStar,
         strategy_Multi_EveningStar, strategy_Multi_Hammer, strategy_Multi_ShootingStar
     ];
@@ -1338,38 +1156,35 @@
     };
 
     function getActiveStrategies() {
-        if (!selectedTimeframe || !TIMEFRAMES[selectedTimeframe]) {
-            return STRATEGIES;
-        }
-        let tfConfig = TIMEFRAMES[selectedTimeframe];
-        let category = tfConfig.category;
+        if (!selectedTimeframe || !TIMEFRAMES[selectedTimeframe]) return STRATEGIES;
+        let category = TIMEFRAMES[selectedTimeframe].category;
         let activeNames = TIMEFRAME_STRATEGY_MAP[category] || TIMEFRAME_STRATEGY_MAP["intraday"];
         return STRATEGIES.filter(s => activeNames.includes(s._name));
     }
 
     function calculateWaitTime() {
         if (!selectedTimeframe || !TIMEFRAMES[selectedTimeframe]) return 60000;
-        let config = TIMEFRAMES[selectedTimeframe];
-        return Math.min(Math.max(config.waitSeconds * 1000, 10000), 3600000);
+        return Math.min(Math.max(TIMEFRAMES[selectedTimeframe].waitSeconds * 1000, 10000), 3600000);
     }
 
     // ========== إدارة الصفقات ==========
     function resetDailyTrades() {
         let today = new Date().toDateString();
-        if(today !== lastTradeDate) {
-            dailyTradesCount = 0;
-            lastTradeDate = today;
-        }
+        if (today !== lastTradeDate) { dailyTradesCount = 0; lastTradeDate = today; }
     }
 
     function canOpenTrade() {
         resetDailyTrades();
+        if (currentLiquidity < SETTINGS.minLiquidityPercent) {
+            console.warn(`⚠️ السيولة منخفضة (${currentLiquidity}%) - تم منع فتح الصفقة`);
+            return false;
+        }
         return dailyTradesCount < SETTINGS.maxTradesPerDay;
     }
 
     function openTrade(signal, price, confidence, reason) {
-        if(!canOpenTrade()) {
-            showNotification("⚠️ تم الوصول للحد الأقصى للصفقات اليومية", "#ffaa66");
+        if (!canOpenTrade()) {
+            showNotification("⚠️ تم الوصول للحد الأقصى للصفقات اليومية أو السيولة منخفضة", "#ffaa66");
             return false;
         }
         
@@ -1378,28 +1193,19 @@
         let optimalSL = getOptimalSL(optimalEntry, signal);
         
         currentTrade = {
-            id: Date.now(),
-            direction: signal,
-            entryPrice: optimalEntry,
-            originalPrice: price,
-            confidence: confidence,
-            reason: reason,
-            openTime: new Date(),
-            takeProfit: optimalTP,
-            stopLoss: optimalSL,
-            status: "open"
+            id: Date.now(), direction: signal, entryPrice: optimalEntry,
+            originalPrice: price, confidence: confidence, reason: reason,
+            openTime: new Date(), takeProfit: optimalTP, stopLoss: optimalSL, status: "open"
         };
         
         dailyTradesCount++;
         updateTradesDisplay();
         showTradeNotification("فتح صفقة", currentTrade);
-        
         return true;
     }
 
     function closeTrade(exitPrice, result) {
-        if(!currentTrade || currentTrade.status !== "open") return;
-        
+        if (!currentTrade || currentTrade.status !== "open") return;
         currentTrade.exitPrice = exitPrice;
         currentTrade.exitTime = new Date();
         currentTrade.status = "closed";
@@ -1407,51 +1213,37 @@
         
         let profit = 0;
         if (result === "win") {
-            profit = currentTrade.direction === "CALL" ? 
-                (exitPrice - currentTrade.entryPrice) * 10000 : 
-                (currentTrade.entryPrice - exitPrice) * 10000;
+            profit = currentTrade.direction === "CALL" ? (exitPrice - currentTrade.entryPrice) * 10000 : (currentTrade.entryPrice - exitPrice) * 10000;
         } else {
-            profit = currentTrade.direction === "CALL" ? 
-                (currentTrade.stopLoss - currentTrade.entryPrice) * 10000 : 
-                (currentTrade.entryPrice - currentTrade.stopLoss) * 10000;
+            profit = currentTrade.direction === "CALL" ? (currentTrade.stopLoss - currentTrade.entryPrice) * 10000 : (currentTrade.entryPrice - currentTrade.stopLoss) * 10000;
             profit = -profit;
         }
         currentTrade.profit = profit;
         
         tradesHistory.unshift(currentTrade);
-        if(tradesHistory.length > 30) tradesHistory.pop();
+        if (tradesHistory.length > 30) tradesHistory.pop();
         
         showTradeNotification(result === "win" ? "✅ ربح" : "❌ خسارة", currentTrade);
         updateTradesDisplay();
-        
         currentTrade = null;
     }
 
     function checkTradeExit(exitPrice) {
-        if(!currentTrade || currentTrade.status !== "open") return;
-        
-        if(currentTrade.direction === "CALL") {
-            if(exitPrice >= currentTrade.takeProfit) {
-                closeTrade(exitPrice, "win");
-            } else if(exitPrice <= currentTrade.stopLoss) {
-                closeTrade(exitPrice, "loss");
-            }
+        if (!currentTrade || currentTrade.status !== "open") return;
+        if (currentTrade.direction === "CALL") {
+            if (exitPrice >= currentTrade.takeProfit) closeTrade(exitPrice, "win");
+            else if (exitPrice <= currentTrade.stopLoss) closeTrade(exitPrice, "loss");
         } else {
-            if(exitPrice <= currentTrade.takeProfit) {
-                closeTrade(exitPrice, "win");
-            } else if(exitPrice >= currentTrade.stopLoss) {
-                closeTrade(exitPrice, "loss");
-            }
+            if (exitPrice <= currentTrade.takeProfit) closeTrade(exitPrice, "win");
+            else if (exitPrice >= currentTrade.stopLoss) closeTrade(exitPrice, "loss");
         }
     }
 
     function updateTradesDisplay() {
         let container = document.getElementById('trades-container');
-        if(!container) return;
+        if (!container) return;
         
-        let winRate = tradesHistory.length > 0 ? 
-            (tradesHistory.filter(t => t.result === "win").length / tradesHistory.length * 100).toFixed(1) : 0;
-        
+        let winRate = tradesHistory.length > 0 ? (tradesHistory.filter(t => t.result === "win").length / tradesHistory.length * 100).toFixed(1) : 0;
         let totalProfit = tradesHistory.reduce((sum, t) => sum + (t.profit || 0), 0);
         
         let html = `<div style="background:#00000066;border-radius:12px;padding:10px;margin-top:10px;">
@@ -1464,12 +1256,9 @@
                 <span style="color:${totalProfit >= 0 ? '#00ffaa' : '#ff4466'};">الربح الإجمالي: ${totalProfit > 0 ? '+' : ''}${totalProfit.toFixed(1)} نقطة</span>
             </div>`;
         
-        if(currentTrade) {
-            let currentProfit = currentTrade.direction === "CALL" ? 
-                (currentPrice - currentTrade.entryPrice) * 10000 : 
-                (currentTrade.entryPrice - currentPrice) * 10000;
+        if (currentTrade) {
+            let currentProfit = currentTrade.direction === "CALL" ? (currentPrice - currentTrade.entryPrice) * 10000 : (currentTrade.entryPrice - currentPrice) * 10000;
             let profitColor = currentProfit >= 0 ? "#00ffaa" : "#ff4466";
-            
             html += `<div style="background:rgba(0,255,170,0.1);border-radius:12px;padding:10px;margin-bottom:10px;border-right:3px solid ${currentTrade.direction === "CALL" ? "#00ffaa" : "#ff4466"}">
                 <div style="display:flex;justify-content:space-between;">
                     <span style="color:#fff;font-size:12px;font-weight:bold;">🔓 صفقة مفتوحة</span>
@@ -1483,10 +1272,9 @@
             </div>`;
         }
         
-        if(tradesHistory.length > 0) {
-            html += `<div style="max-height:160px;overflow-y:auto;">
-                <div style="font-size:10px;color:#888;margin-bottom:5px;">📋 آخر الصفقات:</div>`;
-            for(let trade of tradesHistory.slice(0,6)) {
+        if (tradesHistory.length > 0) {
+            html += `<div style="max-height:160px;overflow-y:auto;"><div style="font-size:10px;color:#888;margin-bottom:5px;">📋 آخر الصفقات:</div>`;
+            for (let trade of tradesHistory.slice(0, 6)) {
                 let resultColor = trade.result === "win" ? "#00ffaa" : "#ff4466";
                 html += `<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid #333;font-size:10px;">
                     <span style="color:${resultColor}">${trade.result === "win" ? "✓" : "✗"}</span>
@@ -1497,7 +1285,6 @@
             }
             html += `</div>`;
         }
-        
         html += `</div>`;
         container.innerHTML = html;
     }
@@ -1513,7 +1300,7 @@
             <div>🎯 TP: ${trade.takeProfit.toFixed(5)} | 🛑 SL: ${trade.stopLoss.toFixed(5)}</div>
             <div style="font-size:9px;color:#88ccff;">✨ تحليل يعمل على شارت المفتوح ✨</div>`;
         document.body.appendChild(div);
-        setTimeout(()=>div.remove(), 4500);
+        setTimeout(() => div.remove(), 4500);
     }
 
     function showNotification(message, color) {
@@ -1523,49 +1310,46 @@
             animation:fadeIn 0.3s ease-out;font-size:13px;color:#fff;font-weight:bold;`;
         div.innerHTML = message;
         document.body.appendChild(div);
-        setTimeout(()=>div.remove(), 3000);
+        setTimeout(() => div.remove(), 3000);
     }
 
     // ========== التحليل ==========
     function analyzeChart() {
         let candles = getChartData();
-        if(candles.length < 10) return{signal:"NEUTRAL",confidence:0,strength:"",reason:"بيانات غير كافية"};
+        if (candles.length < 10) return { signal: "NEUTRAL", confidence: 0, strength: "", reason: "بيانات غير كافية" };
         
         let active = getActiveStrategies();
         let signals = [];
-        for(let s of active){
-            try{
+        for (let s of active) {
+            try {
                 let r = s(candles);
-                if(r && r.signal !== "NEUTRAL" && r.confidence >= SETTINGS.minConfidence) {
-                    signals.push(r);
-                }
+                if (r && r.signal !== "NEUTRAL" && r.confidence >= SETTINGS.minConfidence) signals.push(r);
             } catch(e) {}
         }
         
         let tot = signals.length;
-        if(tot === 0) return{signal:"NEUTRAL",confidence:0,strength:"",reason:"لا توجد إشارات"};
+        if (tot === 0) return { signal: "NEUTRAL", confidence: 0, strength: "", reason: "لا توجد إشارات" };
         
-        let callWeight = signals.filter(s=>s.signal==="CALL").reduce((sum,s)=>sum + s.confidence, 0);
-        let putWeight = signals.filter(s=>s.signal==="PUT").reduce((sum,s)=>sum + s.confidence, 0);
+        let callWeight = signals.filter(s => s.signal === "CALL").reduce((sum, s) => sum + s.confidence, 0);
+        let putWeight = signals.filter(s => s.signal === "PUT").reduce((sum, s) => sum + s.confidence, 0);
         let totalWeight = callWeight + putWeight;
         
         let callPercent = totalWeight > 0 ? (callWeight / totalWeight) * 100 : 0;
         let putPercent = totalWeight > 0 ? (putWeight / totalWeight) * 100 : 0;
-        
         let tfWeight = TIMEFRAMES[selectedTimeframe]?.weight || 0.85;
         
         let finalCallConfidence = callPercent * tfWeight;
         let finalPutConfidence = putPercent * tfWeight;
         
-        if(finalCallConfidence > finalPutConfidence && finalCallConfidence >= SETTINGS.minConfidence){
-            let best = signals.filter(s=>s.signal==="CALL").sort((a,b)=>b.confidence - a.confidence)[0];
-            return{signal:"CALL",confidence:Math.min(finalCallConfidence, 98),strength:best?.strength||"قوية",reason:best?.reason || `${signals.filter(s=>s.signal==="CALL").length}/${tot} استراتيجية للصعود`};
+        if (finalCallConfidence > finalPutConfidence && finalCallConfidence >= SETTINGS.minConfidence) {
+            let best = signals.filter(s => s.signal === "CALL").sort((a, b) => b.confidence - a.confidence)[0];
+            return { signal: "CALL", confidence: Math.min(finalCallConfidence, 98), strength: best?.strength || "قوية", reason: best?.reason || `${signals.filter(s => s.signal === "CALL").length}/${tot} استراتيجية للصعود` };
         }
-        if(finalPutConfidence > finalCallConfidence && finalPutConfidence >= SETTINGS.minConfidence){
-            let best = signals.filter(s=>s.signal==="PUT").sort((a,b)=>b.confidence - a.confidence)[0];
-            return{signal:"PUT",confidence:Math.min(finalPutConfidence, 98),strength:best?.strength||"قوية",reason:best?.reason || `${signals.filter(s=>s.signal==="PUT").length}/${tot} استراتيجية للهبوط`};
+        if (finalPutConfidence > finalCallConfidence && finalPutConfidence >= SETTINGS.minConfidence) {
+            let best = signals.filter(s => s.signal === "PUT").sort((a, b) => b.confidence - a.confidence)[0];
+            return { signal: "PUT", confidence: Math.min(finalPutConfidence, 98), strength: best?.strength || "قوية", reason: best?.reason || `${signals.filter(s => s.signal === "PUT").length}/${tot} استراتيجية للهبوط` };
         }
-        return{signal:"NEUTRAL",confidence:0,strength:"",reason:"ثقة منخفضة"};
+        return { signal: "NEUTRAL", confidence: 0, strength: "", reason: "ثقة منخفضة" };
     }
 
     // ========== عرض الإشارة ==========
@@ -1579,11 +1363,9 @@
         let mc = isCall ? "#00ffaa" : "#ff4466";
         let icon = isCall ? "إشارة : 🟢" : "إشارة : 🔴";
         let title = isCall ? "شراء CALL" : "بيع PUT";
-        let tf = TIMEFRAMES[selectedTimeframe] || {name: currentTimeframeAuto || "غير معروف"};
+        let tf = TIMEFRAMES[selectedTimeframe] || { name: currentTimeframeAuto || "غير معروف" };
         
-        if(canOpenTrade()) {
-            openTrade(direction, entryPrice, confidence, reason);
-        }
+        if (canOpenTrade()) openTrade(direction, entryPrice, confidence, reason);
         
         let div = document.createElement('div');
         div.style.cssText = `position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);z-index:9999991;
@@ -1594,7 +1376,7 @@
             <div style="position:absolute;top:-12px;right:-12px;background:${mc};border-radius:30px;padding:4px 10px;font-size:12px;font-weight:bold;color:#000;">${confidence.toFixed(0)}%</div>
             <div style="font-size:26px;">${icon}</div>
             <div style="font-size:26px;font-weight:bold;color:${mc};margin:12px 0;">${title}</div>
-            <div style="font-size:17px;color:#ffd966;margin-bottom:13px;">${isCall?"صعود متوقع 🚀":"هبوط متوقع 💥"}</div>
+            <div style="font-size:17px;color:#ffd966;margin-bottom:13px;">${isCall ? "صعود متوقع 🚀" : "هبوط متوقع 💥"}</div>
             <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:15px;">
                 <div style="background:rgba(0,0,0,0.5);border-radius:20px;padding:5px 10px;">
                     <span style="color:#aaa;font-size:10px;">الفريم</span><br>
@@ -1632,11 +1414,11 @@
         style.textContent = `@keyframes fadeIn{0%{opacity:0;transform:translate(-50%,-50%) scale(0.8)}100%{opacity:1;transform:translate(-50%,-50%) scale(1)}}`;
         document.head.appendChild(style);
         document.body.appendChild(div);
-        setTimeout(()=>{div.remove();style.remove();}, SETTINGS.signalDuration);
+        setTimeout(() => { div.remove(); style.remove(); }, SETTINGS.signalDuration);
     }
 
     function showSearchingStatus() {
-        if(searchStatusDiv) return;
+        if (searchStatusDiv) return;
         searchStatusDiv = document.createElement('div');
         searchStatusDiv.id = 'search-status';
         searchStatusDiv.style.cssText = `position:fixed;bottom:100px;right:20px;background:#ff0000aa;
@@ -1647,46 +1429,46 @@
     }
 
     function hideSearchingStatus() {
-        if(searchStatusDiv){searchStatusDiv.remove();searchStatusDiv=null;}
+        if (searchStatusDiv) { searchStatusDiv.remove(); searchStatusDiv = null; }
     }
 
     function analysisLoop() {
-        if(!botRunning) return;
-        let now=Date.now();
-        if(now-lastSignalTime<calculateWaitTime()) return;
+        if (!botRunning) return;
+        let now = Date.now();
+        if (now - lastSignalTime < calculateWaitTime()) return;
         
-        let a=analyzeChart();
-        if(a.signal!=="NEUTRAL" && a.confidence>=SETTINGS.minConfidence){
+        let a = analyzeChart();
+        if (a.signal !== "NEUTRAL" && a.confidence >= SETTINGS.minConfidence) {
             hideSearchingStatus();
-            showSignal(a.signal,a.strength,a.confidence,a.reason);
-            lastSignalTime=now;
+            showSignal(a.signal, a.strength, a.confidence, a.reason);
+            lastSignalTime = now;
             updateLastSignal(a);
         } else {
-            if(!searchStatusDiv && botRunning) showSearchingStatus();
-            updateLastSignal({signal:"NEUTRAL",reason:"جاري التحليل...",confidence:0});
+            if (!searchStatusDiv && botRunning) showSearchingStatus();
+            updateLastSignal({ signal: "NEUTRAL", reason: "جاري التحليل...", confidence: 0 });
         }
         updateTradesDisplay();
         detectSupplyDemandZones();
     }
 
     function updateLastSignal(a) {
-        let d=document.getElementById('last-signal');
-        if(d){
-            let color=a.signal==="CALL"?"#00ffaa":a.signal==="PUT"?"#ff4466":"#ffd966";
-            let text=a.signal==="CALL"?"شراء":a.signal==="PUT"?"بيع":"تحليل";
-            d.innerHTML=`<div style="background:rgba(0,0,0,0.5);border-radius:12px;padding:10px;border-right:3px solid ${color};">
+        let d = document.getElementById('last-signal');
+        if (d) {
+            let color = a.signal === "CALL" ? "#00ffaa" : a.signal === "PUT" ? "#ff4466" : "#ffd966";
+            let text = a.signal === "CALL" ? "شراء" : a.signal === "PUT" ? "بيع" : "تحليل";
+            d.innerHTML = `<div style="background:rgba(0,0,0,0.5);border-radius:12px;padding:10px;border-right:3px solid ${color};">
                 <div style="display:flex;justify-content:space-between;">
                     <span style="color:${color};font-weight:bold;">${text}</span>
-                    <span style="color:#ffd966;">${a.confidence>0?a.confidence.toFixed(0)+'%':''}</span>
+                    <span style="color:#ffd966;">${a.confidence > 0 ? a.confidence.toFixed(0) + '%' : ''}</span>
                 </div>
-                <div style="font-size:10px;color:#aaa;margin-top:3px;">${(a.reason||'...').substring(0,40)}</div>
+                <div style="font-size:10px;color:#aaa;margin-top:3px;">${(a.reason || '...').substring(0, 40)}</div>
             </div>`;
         }
     }
 
     // ========== واجهة المستخدم ==========
     function createUI() {
-        let ex=document.getElementById('obeida-ui'); if(ex) ex.remove();
+        let ex = document.getElementById('obeida-ui'); if (ex) ex.remove();
         
         let style = document.createElement('style');
         style.textContent = `
@@ -1697,21 +1479,21 @@
         `;
         document.head.appendChild(style);
         
-        let ui=document.createElement('div');
-        ui.id='obeida-ui';
+        let ui = document.createElement('div');
+        ui.id = 'obeida-ui';
         ui.style.cssText = `position:fixed;bottom:20px;right:20px;width:380px;max-width:calc(100% - 25px);max-height:90vh;overflow-y:auto;
             background:linear-gradient(145deg,#0a0f1e,#020408);border-radius:28px;
             border:1px solid rgba(255,217,102,0.3);z-index:999990;direction:rtl;
             font-family:'Tahoma','Segoe UI',monospace;box-shadow:0 10px 30px rgba(0,0,0,0.6);
             backdrop-filter:blur(8px);`;
         
-        ui.innerHTML=`
+        ui.innerHTML = `
             <div style="background:linear-gradient(135deg,#ffd96622,#00000033);padding:14px 18px;border-bottom:1px solid #ffd96655;border-radius:28px 28px 0 0;cursor:move;" id="ui-header">
                 <div style="display:flex;justify-content:space-between;align-items:center;">
                     <div style="display:flex;align-items:center;gap:10px;">
                         <span style="font-size:15px;">🔥</span>
                         <div>
-                            <h3 style="color:#ffd966;margin:0;font-size:15px;font-weight:bold;">Obeida Trading BOT V2</h3>
+                            <h3 style="color:#ffd966;margin:0;font-size:15px;font-weight:bold;">Obeida Trading BOT V8</h3>
                             <div style="font-size:9px;color:#88ccff;">${STRATEGIES.length}+ استراتيجية | شارت حقيقي</div>
                         </div>
                     </div>
@@ -1722,14 +1504,6 @@
                 </div>
             </div>
             <div id="ui-main-content" style="padding:15px;">
-                <div style="background:linear-gradient(135deg,#00ffaa11,#00000044);border-radius:20px;padding:12px;text-align:center;margin-bottom:12px;border:1px solid #00ffaa33;">
-                    <div style="font-size:9px;color:#aaa;">💰 السعر الحالي</div>
-                    <div style="display:flex;justify-content:center;align-items:baseline;gap:12px;margin-top:5px;">
-                        <span id="current-price-display" style="font-size:22px;color:#00ffaa;font-weight:bold;">0.00000</span>
-                        <span id="price-diff-display" style="font-size:13px;font-weight:bold;">● 0</span>
-                    </div>
-                </div>
-                
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px;">
                     <div style="background:#00000055;border-radius:18px;padding:10px;text-align:center;">
                         <div style="font-size:9px;color:#aaa;">💰 العملة</div>
@@ -1747,8 +1521,8 @@
                         <div id="current-account-display" style="font-size:13px;font-weight:bold;">🔄 جاري الكشف...</div>
                     </div>
                     <div style="background:#00000055;border-radius:18px;padding:10px;text-align:center;">
-                        <div style="font-size:9px;color:#aaa;">📊 فيبوناتشي</div>
-                        <div style="font-size:11px;color:#00ffaa;" id="fib-status">✅ مفعل</div>
+                        <div style="font-size:9px;color:#aaa;">💧 السيولة</div>
+                        <div id="liquidity-display" style="font-size:13px;font-weight:bold;">🔄 جاري الكشف...</div>
                     </div>
                 </div>
                 
@@ -1775,7 +1549,7 @@
                 </div>
                 
                 <div style="font-size:7px;color:#ffd96688;text-align:center;margin-top:12px;padding-top:8px;border-top:1px solid #ffffff11;">
-                    ⚡  تحليل حقيقي كامل | ${STRATEGIES.length} استراتيجية  ⚡
+                    ⚡ تحليل حقيقي كامل | ${STRATEGIES.length} استراتيجية ⚡
                 </div>
             </div>`;
         
@@ -1785,9 +1559,9 @@
         let isDragging = false;
         let dragStartX, dragStartY, uiStartX, uiStartY;
         const header = document.getElementById('ui-header');
-        if(header) {
+        if (header) {
             header.addEventListener('mousedown', (e) => {
-                if(e.target.tagName === 'BUTTON') return;
+                if (e.target.tagName === 'BUTTON') return;
                 isDragging = true;
                 dragStartX = e.clientX;
                 dragStartY = e.clientY;
@@ -1798,7 +1572,7 @@
                 e.preventDefault();
             });
             document.addEventListener('mousemove', (e) => {
-                if(!isDragging) return;
+                if (!isDragging) return;
                 let newLeft = uiStartX + (e.clientX - dragStartX);
                 let newTop = uiStartY + (e.clientY - dragStartY);
                 newLeft = Math.max(5, Math.min(window.innerWidth - ui.offsetWidth - 5, newLeft));
@@ -1824,27 +1598,25 @@
         const mainContent = document.getElementById('ui-main-content');
         
         let isMinimized = false;
-        if(minimizeBtn) minimizeBtn.onclick = () => {
+        if (minimizeBtn) minimizeBtn.onclick = () => {
             isMinimized = !isMinimized;
-            if(mainContent) mainContent.style.display = isMinimized ? 'none' : 'block';
+            if (mainContent) mainContent.style.display = isMinimized ? 'none' : 'block';
             minimizeBtn.innerHTML = isMinimized ? '+' : '−';
             ui.style.width = isMinimized ? 'auto' : '380px';
         };
         
-        if(closeBtn) closeBtn.onclick = () => {
-            if(botRunning) stopAnalysis();
+        if (closeBtn) closeBtn.onclick = () => {
+            if (botRunning) stopAnalysis();
             ui.remove();
         };
         
-        if(startBtn) startBtn.onclick = startAnalysis;
-        if(stopBtn) stopBtn.onclick = stopAnalysis;
-        if(telegramBtn) telegramBtn.onclick = () => window.open('https://t.me/ObeidaTrading', '_blank');
-        if(settingsBtn) settingsBtn.onclick = showSettingsModal;
-        if(fibToggle) fibToggle.onclick = () => {
+        if (startBtn) startBtn.onclick = startAnalysis;
+        if (stopBtn) stopBtn.onclick = stopAnalysis;
+        if (telegramBtn) telegramBtn.onclick = () => window.open('https://t.me/ObeidaTrading', '_blank');
+        if (settingsBtn) settingsBtn.onclick = showSettingsModal;
+        if (fibToggle) fibToggle.onclick = () => {
             SETTINGS.useFibonacciLevels = !SETTINGS.useFibonacciLevels;
             fibToggle.style.background = SETTINGS.useFibonacciLevels ? "#4a6a2a" : "#4a2a2a";
-            const fibStatus = document.getElementById('fib-status');
-            if(fibStatus) fibStatus.innerHTML = SETTINGS.useFibonacciLevels ? '✅ مفعل' : '❌ معطل';
             showNotification(SETTINGS.useFibonacciLevels ? "✅ تم تفعيل فيبوناتشي" : "❌ تم تعطيل فيبوناتشي", "#ffd966");
             updateFibonacciDisplay();
         };
@@ -1855,53 +1627,48 @@
     }
 
     function showSettingsModal() {
-        let modal=document.createElement('div');
-        modal.style.cssText=`position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.95);z-index:1000001;display:flex;justify-content:center;align-items:center;`;
-        modal.innerHTML=`
+        let modal = document.createElement('div');
+        modal.style.cssText = `position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.95);z-index:1000001;display:flex;justify-content:center;align-items:center;`;
+        modal.innerHTML = `
             <div style="background:linear-gradient(145deg,#0a0f1e,#020408);padding:30px;border-radius:30px;border:2px solid #ffd966;width:340px;">
-                <h3 style="color:#ffd966;text-align:center;margin-bottom:20px;">⚙️ إعدادات البوت V7</h3>
-                <div style="margin-bottom:15px;">
-                    <label style="color:#fff;font-size:12px;">🎯 جني الربح (نقطة):</label>
-                    <input type="number" id="tp-setting" value="${SETTINGS.takeProfitPips}" style="width:100%;padding:8px;margin-top:5px;background:#0f1422;border:1px solid #ffd966;color:#fff;border-radius:10px;">
-                </div>
-                <div style="margin-bottom:15px;">
-                    <label style="color:#fff;font-size:12px;">🛑 وقف الخسارة (نقطة):</label>
-                    <input type="number" id="sl-setting" value="${SETTINGS.stopLossPips}" style="width:100%;padding:8px;margin-top:5px;background:#0f1422;border:1px solid #ffd966;color:#fff;border-radius:10px;">
-                </div>
-                <div style="margin-bottom:15px;">
-                    <label style="color:#fff;font-size:12px;">📊 الحد الأقصى للصفقات اليومية:</label>
-                    <input type="number" id="max-trades" value="${SETTINGS.maxTradesPerDay}" style="width:100%;padding:8px;margin-top:5px;background:#0f1422;border:1px solid #ffd966;color:#fff;border-radius:10px;">
-                </div>
-                <div style="margin-bottom:15px;">
-                    <label style="color:#fff;font-size:12px;">🎯 الحد الأدنى للثقة (%):</label>
-                    <input type="number" id="min-conf" value="${SETTINGS.minConfidence}" style="width:100%;padding:8px;margin-top:5px;background:#0f1422;border:1px solid #ffd966;color:#fff;border-radius:10px;">
-                </div>
+                <h3 style="color:#ffd966;text-align:center;margin-bottom:20px;">⚙️ إعدادات البوت V8</h3>
+                <div style="margin-bottom:15px;"><label style="color:#fff;font-size:12px;">🎯 جني الربح (نقطة):</label>
+                <input type="number" id="tp-setting" value="${SETTINGS.takeProfitPips}" style="width:100%;padding:8px;margin-top:5px;background:#0f1422;border:1px solid #ffd966;color:#fff;border-radius:10px;"></div>
+                <div style="margin-bottom:15px;"><label style="color:#fff;font-size:12px;">🛑 وقف الخسارة (نقطة):</label>
+                <input type="number" id="sl-setting" value="${SETTINGS.stopLossPips}" style="width:100%;padding:8px;margin-top:5px;background:#0f1422;border:1px solid #ffd966;color:#fff;border-radius:10px;"></div>
+                <div style="margin-bottom:15px;"><label style="color:#fff;font-size:12px;">📊 الحد الأقصى للصفقات اليومية:</label>
+                <input type="number" id="max-trades" value="${SETTINGS.maxTradesPerDay}" style="width:100%;padding:8px;margin-top:5px;background:#0f1422;border:1px solid #ffd966;color:#fff;border-radius:10px;"></div>
+                <div style="margin-bottom:15px;"><label style="color:#fff;font-size:12px;">🎯 الحد الأدنى للثقة (%):</label>
+                <input type="number" id="min-conf" value="${SETTINGS.minConfidence}" style="width:100%;padding:8px;margin-top:5px;background:#0f1422;border:1px solid #ffd966;color:#fff;border-radius:10px;"></div>
+                <div style="margin-bottom:15px;"><label style="color:#fff;font-size:12px;">💧 الحد الأدنى للسيولة (%):</label>
+                <input type="number" id="min-liq" value="${SETTINGS.minLiquidityPercent}" style="width:100%;padding:8px;margin-top:5px;background:#0f1422;border:1px solid #ffd966;color:#fff;border-radius:10px;"></div>
                 <button id="save-settings" class="btn-hover" style="width:100%;padding:10px;background:linear-gradient(95deg,#ffd966,#ffaa33);border:none;border-radius:20px;color:#000;cursor:pointer;font-weight:bold;">حفظ الإعدادات</button>
                 <button id="close-settings" class="btn-hover" style="width:100%;margin-top:10px;padding:8px;background:#333;border:none;border-radius:20px;color:#fff;cursor:pointer;">إغلاق</button>
             </div>`;
         document.body.appendChild(modal);
         
-        document.getElementById('save-settings').onclick=()=>{
-            SETTINGS.takeProfitPips=parseInt(document.getElementById('tp-setting').value) || 50;
-            SETTINGS.stopLossPips=parseInt(document.getElementById('sl-setting').value) || 25;
-            SETTINGS.maxTradesPerDay=parseInt(document.getElementById('max-trades').value) || 10;
-            SETTINGS.minConfidence=parseInt(document.getElementById('min-conf').value) || 75;
+        document.getElementById('save-settings').onclick = () => {
+            SETTINGS.takeProfitPips = parseInt(document.getElementById('tp-setting').value) || 50;
+            SETTINGS.stopLossPips = parseInt(document.getElementById('sl-setting').value) || 25;
+            SETTINGS.maxTradesPerDay = parseInt(document.getElementById('max-trades').value) || 10;
+            SETTINGS.minConfidence = parseInt(document.getElementById('min-conf').value) || 75;
+            SETTINGS.minLiquidityPercent = parseInt(document.getElementById('min-liq').value) || 65;
             modal.remove();
             updateTradesDisplay();
             showNotification("✅ تم حفظ الإعدادات", "#00ffaa");
         };
-        document.getElementById('close-settings').onclick=()=>modal.remove();
+        document.getElementById('close-settings').onclick = () => modal.remove();
     }
 
     function showPasswordModal() {
-        let modal=document.createElement('div');
-        modal.style.cssText=`position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.98);
+        let modal = document.createElement('div');
+        modal.style.cssText = `position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.98);
             z-index:1000000;display:flex;justify-content:center;align-items:center;backdrop-filter:blur(5px);`;
-        modal.innerHTML=`
+        modal.innerHTML = `
             <div style="background:linear-gradient(145deg,#0a0f1e,#020408);padding:40px;border-radius:50px;border:2px solid #ffd966;text-align:center;width:340px;">
                 <div style="font-size:25px;">🔥</div>
-                <h2 style="color:#ffd966;margin:10px 0;">Obeida Trading BOT V2</h2>
-                <p style="color:#88ccff;font-size:12px;"> تحليل حقيقي مربوط في سوق </p>
+                <h2 style="color:#ffd966;margin:10px 0;">Obeida Trading BOT V8</h2>
+                <p style="color:#88ccff;font-size:12px;">تحليل حقيقي مربوط في سوق</p>
                 <p style="color:#ffaa66;font-size:11px;">🔑 أدخل كلمة المرور للمتابعة</p>
                 <input type="password" id="pass-input" placeholder="كلمة المرور"
                     style="width:100%;padding:12px;margin:20px 0;background:#0f1422;border:1px solid #ffd966;color:#fff;border-radius:30px;text-align:center;font-size:14px;">
@@ -1911,66 +1678,73 @@
             </div>`;
         document.body.appendChild(modal);
         
-        document.getElementById('login-btn').onclick=()=>{
-            if(document.getElementById('pass-input').value===BOT_PASSWORD){
-                isAuthenticated=true;
+        document.getElementById('login-btn').onclick = () => {
+            if (document.getElementById('pass-input').value === BOT_PASSWORD) {
+                isAuthenticated = true;
                 modal.remove();
                 createUI();
                 initPriceRadar();
-                initAssetDetection();
-                initTimeframeDetection();
-                initAccountDetection();
                 updateFibonacciLevels();
                 detectSupplyDemandZones();
+                
+                // تشغيل المراقبين الدائمين
+                setInterval(checkFrameFromGCnIH, 500);
+                setInterval(checkAssetFromXfLZW, 1000);
+                setInterval(checkLiquidityFromGdh53, 1000);
+                setInterval(checkAccountTypeUniversal, 2000);
+                
+                console.log("%c✅ تم تفعيل جميع أجهزة المراقبة (GCnIH, xfLZW, gDH53)", "color: #00ff00; font-weight: bold;");
+                console.log(`%c📊 عدد الاستراتيجيات النشطة: ${STRATEGIES.length} استراتيجية`, "color: #ffd966; font-weight: bold;");
             } else {
                 alert("❌ كلمة المرور غير صحيحة ❌");
             }
         };
-        document.getElementById('tg-link').onclick=()=>window.open('https://t.me/ObeidaTrading','_blank');
-        document.getElementById('pass-input').addEventListener('keypress',e=>{if(e.key==='Enter') document.getElementById('login-btn').click();});
+        document.getElementById('tg-link').onclick = () => window.open('https://t.me/ObeidaTrading', '_blank');
+        document.getElementById('pass-input').addEventListener('keypress', e => { if (e.key === 'Enter') document.getElementById('login-btn').click(); });
     }
 
     function startAnalysis() {
-        if(!isAuthenticated){alert("🔐 الرجاء إدخال كلمة المرور");showPasswordModal();return;}
-        if(!selectedTimeframe){
+        if (!isAuthenticated) { alert("🔐 الرجاء إدخال كلمة المرور"); showPasswordModal(); return; }
+        if (!selectedTimeframe) {
             showNotification("⚠️ الرجاء الانتظار حتى يتم اكتشاف الفريم تلقائياً", "#ffaa66");
             return;
         }
-        if(botRunning) return;
-        botRunning=true;
-        botInterval=setInterval(analysisLoop,SETTINGS.checkInterval);
-        document.getElementById('start-btn').style.display='none';
-        document.getElementById('stop-btn').style.display='flex';
-        document.getElementById('status-text').innerHTML=`🟢 يعمل | ${getActiveStrategies().length} استراتيجية | ${selectedTimeframe}`;
+        if (botRunning) return;
+        botRunning = true;
+        botInterval = setInterval(analysisLoop, SETTINGS.checkInterval);
+        document.getElementById('start-btn').style.display = 'none';
+        document.getElementById('stop-btn').style.display = 'flex';
+        document.getElementById('status-text').innerHTML = `🟢 يعمل | ${getActiveStrategies().length} استراتيجية | ${selectedTimeframe}`;
         showSearchingStatus();
     }
 
     function stopAnalysis() {
-        if(!botRunning) return;
-        clearInterval(botInterval); botRunning=false;
-        document.getElementById('start-btn').style.display='flex';
-        document.getElementById('stop-btn').style.display='none';
-        document.getElementById('status-text').innerHTML='🔴 التداول متوقف';
+        if (!botRunning) return;
+        clearInterval(botInterval); botRunning = false;
+        document.getElementById('start-btn').style.display = 'flex';
+        document.getElementById('stop-btn').style.display = 'none';
+        document.getElementById('status-text').innerHTML = '🔴 التداول متوقف';
         hideSearchingStatus();
     }
 
-    console.log(`✨ Obeida Trading Bot v2 - ${STRATEGIES.length} استراتيجية محسّنة حسب نوع التداول ✨`);
+    console.log(`✨ Obeida Trading Bot V2 ULTIMATE  ✨`);
     showPasswordModal();
 
     window.ObeidaPro = {
         start: startAnalysis,
         stop: stopAnalysis,
-        status: ()=>botRunning?"يعمل":"متوقف",
-        getCurrentPrice: ()=>currentPrice,
-        getTimeframe: ()=>selectedTimeframe,
-        getCurrentAsset: ()=>currentAsset,
-        getAccountType: ()=>currentAccountType,
-        getActiveStrategies: ()=>getActiveStrategies().map(s=>s._name),
-        getActiveCount: ()=>getActiveStrategies().length,
-        getFibonacciLevels: ()=>fibonacciLevels,
-        getDemandZones: ()=>demandZones,
-        getSupplyZones: ()=>supplyZones,
-        version: "V2.0 ULTIMATE - Obeida Trading",
+        status: () => botRunning ? "يعمل" : "متوقف",
+        getCurrentPrice: () => currentPrice,
+        getTimeframe: () => selectedTimeframe,
+        getCurrentAsset: () => currentAsset,
+        getAccountType: () => currentAccountType,
+        getLiquidity: () => currentLiquidity,
+        getActiveStrategies: () => getActiveStrategies().map(s => s._name),
+        getActiveCount: () => getActiveStrategies().length,
+        getFibonacciLevels: () => fibonacciLevels,
+        getDemandZones: () => demandZones,
+        getSupplyZones: () => supplyZones,
+        version: "V8.0 ULTIMATE - Full Strategies",
         strategies: STRATEGIES.length
     };
 
