@@ -1592,9 +1592,9 @@
             text-align:center;pointer-events:none;animation:fadeIn 0.3s ease-out;max-width:90%;width:500px;`;
         div.innerHTML = `
             <div style="position:absolute;top:-12px;right:-12px;background:${mc};border-radius:30px;padding:4px 10px;font-size:12px;font-weight:bold;color:#000;">${confidence.toFixed(0)}%</div>
-            <div style="font-size:25px;">${icon}</div>
-            <div style="font-size:34px;font-weight:bold;color:${mc};margin:12px 0;">${title}</div>
-            <div style="font-size:20px;color:#ffd966;margin-bottom:15px;">${isCall?"صعود متوقع 🚀":"هبوط متوقع 💥"}</div>
+            <div style="font-size:26px;">${icon}</div>
+            <div style="font-size:26px;font-weight:bold;color:${mc};margin:12px 0;">${title}</div>
+            <div style="font-size:17px;color:#ffd966;margin-bottom:13px;">${isCall?"صعود متوقع 🚀":"هبوط متوقع 💥"}</div>
             <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:15px;">
                 <div style="background:rgba(0,0,0,0.5);border-radius:20px;padding:5px 10px;">
                     <span style="color:#aaa;font-size:10px;">الفريم</span><br>
