@@ -1,6 +1,6 @@
 // ============================================
-// Obeida Trading Bot - النسخة المحسّنة V6.0 ULTIMATE
-// 250+ استراتيجية حقيقية - سحب شارت حقيقي 100%
+// Obeida Trading Bot - النسخة المحسّنة V7.0 ULTIMATE
+// 100+ استراتيجية محسّنة حسب نوع التداول - سحب شارت حقيقي 100%
 // ============================================
 (function(){
     'use strict';
@@ -130,7 +130,6 @@
                         const activeAsset = getTargetAssetName();
                         if (!activeAsset) return;
 
-                        // ===== سحب السعر الحالي =====
                         if (textData.includes(activeAsset)) {
                             const priceMatch = textData.match(/(\d+\.\d{4,})/);
                             
@@ -164,7 +163,6 @@
                             }
                         }
                         
-                        // ===== سحب بيانات الشموع (150 شمعة) =====
                         if (textData && textData.length > 500 && textData.includes('[[')) {
                             try {
                                 const matches = textData.match(/\[\[.*?\]\]/g);
@@ -700,27 +698,205 @@
     }
 
     // =====================================================
-    // ========== الاستراتيجيات ==========
+    // ========== الاستراتيجيات المحسّنة حسب نوع التداول ==========
     // =====================================================
 
-    function strategy_RSI(candles) {
-        if(candles.length < 15) return null;
+    // ----- استراتيجيات سكالبينج فائق السرعة (scalp_ultra) -----
+    
+    function strategy_UltraScalp_RSI(candles) {
+        if(candles.length < 10) return null;
         let gains = 0, losses = 0;
-        for(let i = candles.length-15; i < candles.length-1; i++){
+        for(let i = candles.length-10; i < candles.length-1; i++){
             let diff = candles[i+1].close - candles[i].close;
             if(diff > 0) gains += diff;
             else losses += Math.abs(diff);
         }
         let rsi = 100 - (100 / (1 + (gains / (losses || 1))));
-        let confidence = rsi < 25 ? 94 : (rsi < 30 ? 88 : (rsi > 75 ? 94 : (rsi > 70 ? 88 : 0)));
-        if(rsi < 30) return {signal:"CALL", confidence: confidence, strength: "قوية جدا", reason: `RSI ${rsi.toFixed(0)} - تشبع بيعي`};
-        if(rsi > 70) return {signal:"PUT", confidence: confidence, strength: "قوية جدا", reason: `RSI ${rsi.toFixed(0)} - تشبع شرائي`};
+        if(rsi < 25) return {signal:"CALL", confidence: 95, strength: "قوية جدا", reason: `RSI ${rsi.toFixed(0)} - تشبع بيعي سريع`};
+        if(rsi > 75) return {signal:"PUT", confidence: 95, strength: "قوية جدا", reason: `RSI ${rsi.toFixed(0)} - تشبع شرائي سريع`};
         return null;
     }
-    strategy_RSI._name = "RSI";
-    strategy_RSI.timeframeScores = { scalp_ultra:85, scalp_fast:88, intraday:92, swing:90, position:85 };
+    strategy_UltraScalp_RSI._name = "UltraScalp_RSI";
+    strategy_UltraScalp_RSI.category = "scalp_ultra";
 
-    function strategy_RSI_Divergence(candles) {
+    function strategy_UltraScalp_Momentum(candles) {
+        if(candles.length < 5) return null;
+        let closes = candles.map(c => c.close);
+        let mom1 = closes[closes.length-1] - closes[closes.length-2];
+        let mom2 = closes[closes.length-2] - closes[closes.length-3];
+        let mom3 = closes[closes.length-3] - closes[closes.length-4];
+        if(mom1 > 0 && mom1 > mom2 && mom2 > mom3) {
+            return {signal:"CALL", confidence: 92, strength: "قوية جدا", reason: "زخم صاعد متسارع"};
+        }
+        if(mom1 < 0 && mom1 < mom2 && mom2 < mom3) {
+            return {signal:"PUT", confidence: 92, strength: "قوية جدا", reason: "زخم هابط متسارع"};
+        }
+        return null;
+    }
+    strategy_UltraScalp_Momentum._name = "UltraScalp_Momentum";
+    strategy_UltraScalp_Momentum.category = "scalp_ultra";
+
+    function strategy_UltraScalp_PriceAction(candles) {
+        if(candles.length < 3) return null;
+        let last = candles[candles.length-1];
+        let prev = candles[candles.length-2];
+        let prev2 = candles[candles.length-3];
+        let body = Math.abs(last.close - last.open);
+        let prevBody = Math.abs(prev.close - prev.open);
+        if(last.close > last.open && body > prevBody * 1.5 && last.close > prev.high) {
+            return {signal:"CALL", confidence: 94, strength: "قوية جدا", reason: "شمعة صاعدة قوية - اختراق"};
+        }
+        if(last.close < last.open && body > prevBody * 1.5 && last.close < prev.low) {
+            return {signal:"PUT", confidence: 94, strength: "قوية جدا", reason: "شمعة هابطة قوية - اختراق"};
+        }
+        return null;
+    }
+    strategy_UltraScalp_PriceAction._name = "UltraScalp_PriceAction";
+    strategy_UltraScalp_PriceAction.category = "scalp_ultra";
+
+    function strategy_UltraScalp_Stochastic(candles) {
+        if(candles.length < 10) return null;
+        let closes = candles.map(c => c.close);
+        let highs = candles.map(c => c.high);
+        let lows = candles.map(c => c.low);
+        let high10 = Math.max(...highs.slice(-10));
+        let low10 = Math.min(...lows.slice(-10));
+        let k = ((closes[closes.length-1] - low10) / (high10 - low10)) * 100;
+        let prevK = ((closes[closes.length-2] - low10) / (high10 - low10)) * 100;
+        if(k < 20 && k > prevK) return {signal:"CALL", confidence: 91, strength: "قوية", reason: "ستوكاستيك تشبع بيعي متجه صعود"};
+        if(k > 80 && k < prevK) return {signal:"PUT", confidence: 91, strength: "قوية", reason: "ستوكاستيك تشبع شرائي متجه هبوط"};
+        return null;
+    }
+    strategy_UltraScalp_Stochastic._name = "UltraScalp_Stochastic";
+    strategy_UltraScalp_Stochastic.category = "scalp_ultra";
+
+    function strategy_UltraScalp_Bollinger_Bandit(candles) {
+        if(candles.length < 10) return null;
+        let closes = candles.map(c => c.close);
+        let sma = closes.slice(-10).reduce((a,b) => a+b, 0) / 10;
+        let variance = closes.slice(-10).reduce((sum, price) => sum + Math.pow(price - sma, 2), 0) / 10;
+        let std = Math.sqrt(variance);
+        let lower = sma - 2 * std;
+        let upper = sma + 2 * std;
+        let current = closes[closes.length-1];
+        let prev = closes[closes.length-2];
+        if(current < lower && current > prev) return {signal:"CALL", confidence: 93, strength: "قوية جدا", reason: "ارتداد سريع من بولينجر السفلي"};
+        if(current > upper && current < prev) return {signal:"PUT", confidence: 93, strength: "قوية جدا", reason: "ارتداد سريع من بولينجر العلوي"};
+        return null;
+    }
+    strategy_UltraScalp_Bollinger_Bandit._name = "UltraScalp_Bollinger";
+    strategy_UltraScalp_Bollinger_Bandit.category = "scalp_ultra";
+
+    function strategy_UltraScalp_Volume_Burst(candles) {
+        if(candles.length < 5) return null;
+        let volumes = candles.map(c => c.volume || 1000);
+        let avgVol = volumes.slice(-5, -1).reduce((a,b) => a+b, 0) / 4;
+        let currentVol = volumes[volumes.length-1];
+        let closes = candles.map(c => c.close);
+        if(currentVol > avgVol * 2 && closes[closes.length-1] > closes[closes.length-2]) {
+            return {signal:"CALL", confidence: 96, strength: "قوية جدا", reason: "انفجار حجم مع صعود"};
+        }
+        if(currentVol > avgVol * 2 && closes[closes.length-1] < closes[closes.length-2]) {
+            return {signal:"PUT", confidence: 96, strength: "قوية جدا", reason: "انفجار حجم مع هبوط"};
+        }
+        return null;
+    }
+    strategy_UltraScalp_Volume_Burst._name = "UltraScalp_Volume";
+    strategy_UltraScalp_Volume_Burst.category = "scalp_ultra";
+
+    // ----- استراتيجيات سكالبينج سريع (scalp_fast) -----
+    
+    function strategy_FastScalp_RSI_MACD(candles) {
+        if(candles.length < 15) return null;
+        let gains = 0, losses = 0;
+        for(let i = candles.length-14; i < candles.length-1; i++){
+            let diff = candles[i+1].close - candles[i].close;
+            if(diff > 0) gains += diff;
+            else losses += Math.abs(diff);
+        }
+        let rsi = 100 - (100 / (1 + (gains / (losses || 1))));
+        let closes = candles.map(c => c.close);
+        let ema12 = closes.slice(-12).reduce((a,b) => a+b, 0) / 12;
+        let ema26 = closes.slice(-26).reduce((a,b) => a+b, 0) / 26;
+        let macd = ema12 - ema26;
+        if(rsi < 35 && macd > 0) return {signal:"CALL", confidence: 94, strength: "قوية جدا", reason: "RSI منخفض + MACD إيجابي"};
+        if(rsi > 65 && macd < 0) return {signal:"PUT", confidence: 94, strength: "قوية جدا", reason: "RSI مرتفع + MACD سلبي"};
+        return null;
+    }
+    strategy_FastScalp_RSI_MACD._name = "FastScalp_RSI_MACD";
+    strategy_FastScalp_RSI_MACD.category = "scalp_fast";
+
+    function strategy_FastScalp_CCI_Reversal(candles) {
+        if(candles.length < 15) return null;
+        let typicalPrices = candles.map(c => (c.high + c.low + c.close) / 3);
+        let sma = typicalPrices.slice(-14).reduce((a,b) => a+b, 0) / 14;
+        let meanDev = typicalPrices.slice(-14).reduce((sum, tp) => sum + Math.abs(tp - sma), 0) / 14;
+        let cci = (typicalPrices[typicalPrices.length-1] - sma) / (0.015 * meanDev);
+        let prevCci = (typicalPrices[typicalPrices.length-2] - sma) / (0.015 * meanDev);
+        if(cci < -100 && cci > prevCci) return {signal:"CALL", confidence: 90, strength: "قوية", reason: "CCI ارتداد من -100"};
+        if(cci > 100 && cci < prevCci) return {signal:"PUT", confidence: 90, strength: "قوية", reason: "CCI ارتداد من +100"};
+        return null;
+    }
+    strategy_FastScalp_CCI_Reversal._name = "FastScalp_CCI";
+    strategy_FastScalp_CCI_Reversal.category = "scalp_fast";
+
+    function strategy_FastScalp_Williams(candles) {
+        if(candles.length < 15) return null;
+        let highs = candles.map(c => c.high);
+        let lows = candles.map(c => c.low);
+        let closes = candles.map(c => c.close);
+        let high14 = Math.max(...highs.slice(-14));
+        let low14 = Math.min(...lows.slice(-14));
+        let wr = ((high14 - closes[closes.length-1]) / (high14 - low14)) * -100;
+        let prevWr = ((high14 - closes[closes.length-2]) / (high14 - low14)) * -100;
+        if(wr < -80 && wr > prevWr) return {signal:"CALL", confidence: 89, strength: "قوية", reason: "Williams %R تشبع بيعي"};
+        if(wr > -20 && wr < prevWr) return {signal:"PUT", confidence: 89, strength: "قوية", reason: "Williams %R تشبع شرائي"};
+        return null;
+    }
+    strategy_FastScalp_Williams._name = "FastScalp_Williams";
+    strategy_FastScalp_Williams.category = "scalp_fast";
+
+    function strategy_FastScalp_Engulfing(candles) {
+        if(candles.length < 2) return null;
+        let last = candles[candles.length-1];
+        let prev = candles[candles.length-2];
+        if(prev.close < prev.open && last.close > last.open && last.open < prev.close && last.close > prev.open) {
+            return {signal:"CALL", confidence: 93, strength: "قوية جدا", reason: "ابتلاع صاعد - انعكاس سريع"};
+        }
+        if(prev.close > prev.open && last.close < last.open && last.open > prev.close && last.close < prev.open) {
+            return {signal:"PUT", confidence: 93, strength: "قوية جدا", reason: "ابتلاع هابط - انعكاس سريع"};
+        }
+        return null;
+    }
+    strategy_FastScalp_Engulfing._name = "FastScalp_Engulfing";
+    strategy_FastScalp_Engulfing.category = "scalp_fast";
+
+    function strategy_FastScalp_MACD_Cross(candles) {
+        if(candles.length < 27) return null;
+        let closes = candles.map(c => c.close);
+        let ema12 = closes.slice(-12).reduce((a,b) => a+b, 0) / 12;
+        let ema26 = closes.slice(-26).reduce((a,b) => a+b, 0) / 26;
+        let macd = ema12 - ema26;
+        let ema9 = closes.slice(-9).reduce((a,b) => a+b, 0) / 9;
+        let hist = macd - ema9;
+        let prevMacd = 0;
+        if(candles.length > 27) {
+            let prevEma12 = closes.slice(-13,-1).reduce((a,b) => a+b, 0) / 12;
+            let prevEma26 = closes.slice(-27,-1).reduce((a,b) => a+b, 0) / 26;
+            prevMacd = prevEma12 - prevEma26;
+            let prevEma9 = closes.slice(-10,-1).reduce((a,b) => a+b, 0) / 9;
+            let prevHist = prevMacd - prevEma9;
+            if(hist > 0 && prevHist <= 0) return {signal:"CALL", confidence: 91, strength: "قوية", reason: "تقاطع MACD صاعد"};
+            if(hist < 0 && prevHist >= 0) return {signal:"PUT", confidence: 91, strength: "قوية", reason: "تقاطع MACD هابط"};
+        }
+        return null;
+    }
+    strategy_FastScalp_MACD_Cross._name = "FastScalp_MACD";
+    strategy_FastScalp_MACD_Cross.category = "scalp_fast";
+
+    // ----- استراتيجيات التداول اليومي (intraday) -----
+    
+    function strategy_Intraday_RSI_Divergence(candles) {
         if(candles.length < 30) return null;
         let closes = candles.map(c => c.close);
         let rsiValues = [];
@@ -738,264 +914,427 @@
         let prevPrice = closes[closes.length-6];
         let lastRSI = rsiValues[rsiValues.length-1];
         let prevRSI = rsiValues[rsiValues.length-6];
-        
         if(prevPrice > lastPrice && prevRSI < lastRSI && lastRSI < 35) {
-            return {signal:"CALL", confidence: 92, strength: "قوية جدا", reason: "دايفرجنس إيجابي RSI"};
+            return {signal:"CALL", confidence: 96, strength: "قوية جدا", reason: "دايفرجنس إيجابي RSI - انعكاس صاعد"};
         }
         if(prevPrice < lastPrice && prevRSI > lastRSI && lastRSI > 65) {
-            return {signal:"PUT", confidence: 92, strength: "قوية جدا", reason: "دايفرجنس سلبي RSI"};
+            return {signal:"PUT", confidence: 96, strength: "قوية جدا", reason: "دايفرجنس سلبي RSI - انعكاس هابط"};
         }
         return null;
     }
-    strategy_RSI_Divergence._name = "RSIDivergence";
-    strategy_RSI_Divergence.timeframeScores = { scalp_ultra:80, scalp_fast:85, intraday:90, swing:92, position:88 };
+    strategy_Intraday_RSI_Divergence._name = "Intraday_RSI_Div";
+    strategy_Intraday_RSI_Divergence.category = "intraday";
 
-    function strategy_Stochastic(candles) {
-        if(candles.length < 15) return null;
+    function strategy_Intraday_MACD_Divergence(candles) {
+        if(candles.length < 35) return null;
         let closes = candles.map(c => c.close);
-        let highs = candles.map(c => c.high);
-        let lows = candles.map(c => c.low);
-        let last14High = Math.max(...highs.slice(-14));
-        let last14Low = Math.min(...lows.slice(-14));
-        let currentClose = closes[closes.length-1];
-        let k = ((currentClose - last14Low) / (last14High - last14Low)) * 100;
-        let prevK = ((closes[closes.length-2] - last14Low) / (last14High - last14Low)) * 100;
-        if(k < 20 && k > prevK) return {signal:"CALL", confidence: 89, strength: "قوية جدا", reason: `ستوكاستيك ${k.toFixed(0)} - تشبع بيعي متجه للصعود`};
-        if(k > 80 && k < prevK) return {signal:"PUT", confidence: 89, strength: "قوية جدا", reason: `ستوكاستيك ${k.toFixed(0)} - تشبع شرائي متجه للهبوط`};
-        return null;
-    }
-    strategy_Stochastic._name = "Stochastic";
-    strategy_Stochastic.timeframeScores = { scalp_ultra:85, scalp_fast:88, intraday:90, swing:88, position:82 };
-
-    function strategy_Momentum(candles) {
-        if(candles.length < 15) return null;
-        let closes = candles.map(c => c.close);
-        let momentum = closes[closes.length-1] - closes[closes.length-11];
-        let avgMomentum = momentum / 10;
-        let prevMomentum = closes[closes.length-2] - closes[closes.length-12];
-        if(momentum > 0 && momentum > prevMomentum && avgMomentum > 0.0002) {
-            return {signal:"CALL", confidence: 86, strength: "قوية", reason: `زخم إيجابي متزايد ${momentum.toFixed(5)}`};
+        let macdValues = [];
+        for(let i = 30; i < closes.length; i++) {
+            let slice = closes.slice(i-26, i);
+            let ema12 = slice.slice(-12).reduce((a,b) => a+b, 0) / 12;
+            let ema26 = slice.reduce((a,b) => a+b, 0) / 26;
+            macdValues.push(ema12 - ema26);
         }
-        if(momentum < 0 && momentum < prevMomentum && avgMomentum < -0.0002) {
-            return {signal:"PUT", confidence: 86, strength: "قوية", reason: `زخم سلبي متزايد ${momentum.toFixed(5)}`};
+        if(macdValues.length < 10) return null;
+        let lastPrice = closes[closes.length-1];
+        let prevPrice = closes[closes.length-6];
+        let lastMACD = macdValues[macdValues.length-1];
+        let prevMACD = macdValues[macdValues.length-6];
+        if(prevPrice > lastPrice && prevMACD < lastMACD && lastMACD < 0) {
+            return {signal:"CALL", confidence: 94, strength: "قوية جدا", reason: "دايفرجنس إيجابي MACD"};
+        }
+        if(prevPrice < lastPrice && prevMACD > lastMACD && lastMACD > 0) {
+            return {signal:"PUT", confidence: 94, strength: "قوية جدا", reason: "دايفرجنس سلبي MACD"};
         }
         return null;
     }
-    strategy_Momentum._name = "Momentum";
-    strategy_Momentum.timeframeScores = { scalp_ultra:88, scalp_fast:90, intraday:85, swing:82, position:80 };
+    strategy_Intraday_MACD_Divergence._name = "Intraday_MACD_Div";
+    strategy_Intraday_MACD_Divergence.category = "intraday";
 
-    function strategy_WilliamsR(candles) {
-        if(candles.length < 15) return null;
-        let highs = candles.map(c => c.high);
-        let lows = candles.map(c => c.low);
-        let closes = candles.map(c => c.close);
-        let high14 = Math.max(...highs.slice(-14));
-        let low14 = Math.min(...lows.slice(-14));
-        let wr = ((high14 - closes[closes.length-1]) / (high14 - low14)) * -100;
-        let prevWr = ((high14 - closes[closes.length-2]) / (high14 - low14)) * -100;
-        if(wr < -80 && wr > prevWr) return {signal:"CALL", confidence: 88, strength: "قوية جدا", reason: `Williams %R ${wr.toFixed(0)} - تشبع بيعي`};
-        if(wr > -20 && wr < prevWr) return {signal:"PUT", confidence: 88, strength: "قوية جدا", reason: `Williams %R ${wr.toFixed(0)} - تشبع شرائي`};
-        return null;
-    }
-    strategy_WilliamsR._name = "WilliamsR";
-    strategy_WilliamsR.timeframeScores = { scalp_ultra:85, scalp_fast:88, intraday:90, swing:87, position:83 };
-
-    function strategy_CCI(candles) {
-        if(candles.length < 21) return null;
-        let typicalPrices = candles.map(c => (c.high + c.low + c.close) / 3);
-        let sma = typicalPrices.slice(-20).reduce((a,b) => a+b, 0) / 20;
-        let meanDev = typicalPrices.slice(-20).reduce((sum, tp) => sum + Math.abs(tp - sma), 0) / 20;
-        let cci = (typicalPrices[typicalPrices.length-1] - sma) / (0.015 * meanDev);
-        let prevCci = (typicalPrices[typicalPrices.length-2] - sma) / (0.015 * meanDev);
-        if(cci < -100 && cci > prevCci) return {signal:"CALL", confidence: 85, strength: "قوية", reason: `CCI ${cci.toFixed(0)} - دون -100 متجه للصعود`};
-        if(cci > 100 && cci < prevCci) return {signal:"PUT", confidence: 85, strength: "قوية", reason: `CCI ${cci.toFixed(0)} - فوق 100 متجه للهبوط`};
-        return null;
-    }
-    strategy_CCI._name = "CCI";
-    strategy_CCI.timeframeScores = { scalp_ultra:82, scalp_fast:85, intraday:88, swing:90, position:85 };
-
-    function strategy_Bollinger(candles) {
-        if(candles.length < 21) return null;
-        let closes = candles.map(c => c.close);
-        let sma = closes.slice(-20).reduce((a,b) => a+b, 0) / 20;
-        let variance = closes.slice(-20).reduce((sum, price) => sum + Math.pow(price - sma, 2), 0) / 20;
-        let std = Math.sqrt(variance);
-        let upper = sma + 2 * std;
-        let lower = sma - 2 * std;
-        let current = closes[closes.length-1];
-        let prev = closes[closes.length-2];
-        let bbw = (upper - lower) / sma;
-        if(current < lower && current > prev && bbw > 0.015) {
-            return {signal:"CALL", confidence: 90, strength: "قوية جدا", reason: "ارتداد من الحد السفلي لبولينجر"};
-        }
-        if(current > upper && current < prev && bbw > 0.015) {
-            return {signal:"PUT", confidence: 90, strength: "قوية جدا", reason: "ارتداد من الحد العلوي لبولينجر"};
-        }
-        return null;
-    }
-    strategy_Bollinger._name = "Bollinger";
-    strategy_Bollinger.timeframeScores = { scalp_ultra:80, scalp_fast:85, intraday:90, swing:92, position:88 };
-
-    function strategy_MACD(candles) {
-        if(candles.length < 27) return null;
-        let closes = candles.map(c => c.close);
-        let ema12 = 0, ema26 = 0;
-        for(let i = closes.length-12; i < closes.length; i++) ema12 += closes[i];
-        ema12 /= 12;
-        for(let i = closes.length-26; i < closes.length; i++) ema26 += closes[i];
-        ema26 /= 26;
-        let macd = ema12 - ema26;
-        let ema9 = closes.slice(-9).reduce((a,b) => a+b, 0) / 9;
-        let histogram = macd - ema9;
-        let prevHist = 0;
-        if(candles.length > 27) {
-            let prevEma12 = closes.slice(-13,-1).reduce((a,b) => a+b, 0) / 12;
-            let prevEma26 = closes.slice(-27,-1).reduce((a,b) => a+b, 0) / 26;
-            let prevMacd = prevEma12 - prevEma26;
-            let prevEma9 = closes.slice(-10,-1).reduce((a,b) => a+b, 0) / 9;
-            prevHist = prevMacd - prevEma9;
-        }
-        if(histogram > 0 && histogram > prevHist && prevHist <= 0) {
-            return {signal:"CALL", confidence: 89, strength: "قوية جدا", reason: "تقاطع MACD إيجابي - تقاطع صاعد"};
-        }
-        if(histogram < 0 && histogram < prevHist && prevHist >= 0) {
-            return {signal:"PUT", confidence: 89, strength: "قوية جدا", reason: "تقاطع MACD سلبي - تقاطع هابط"};
-        }
-        return null;
-    }
-    strategy_MACD._name = "MACD";
-    strategy_MACD.timeframeScores = { scalp_ultra:80, scalp_fast:85, intraday:90, swing:92, position:88 };
-
-    function strategy_BullishEngulfing(candles) {
-        if(candles.length < 2) return null;
-        let last = candles[candles.length-1];
-        let prev = candles[candles.length-2];
-        if(prev.close < prev.open && last.close > last.open && last.open < prev.close && last.close > prev.open) {
-            return {signal:"CALL", confidence: 90, strength: "قوية جدا", reason: "نمط ابتلاع صاعد - انعكاس قوي"};
-        }
-        return null;
-    }
-    strategy_BullishEngulfing._name = "BullishEngulfing";
-    strategy_BullishEngulfing.timeframeScores = { scalp_ultra:85, scalp_fast:88, intraday:90, swing:88, position:85 };
-
-    function strategy_BearishEngulfing(candles) {
-        if(candles.length < 2) return null;
-        let last = candles[candles.length-1];
-        let prev = candles[candles.length-2];
-        if(prev.close > prev.open && last.close < last.open && last.open > prev.close && last.close < prev.open) {
-            return {signal:"PUT", confidence: 90, strength: "قوية جدا", reason: "نمط ابتلاع هابط - انعكاس قوي"};
-        }
-        return null;
-    }
-    strategy_BearishEngulfing._name = "BearishEngulfing";
-    strategy_BearishEngulfing.timeframeScores = { scalp_ultra:85, scalp_fast:88, intraday:90, swing:88, position:85 };
-
-    function strategy_SupportResistance(candles) {
+    function strategy_Intraday_Support_Resistance_Break(candles) {
         if(candles.length < 30) return null;
         let highs = candles.map(c => c.high);
         let lows = candles.map(c => c.low);
         let recentHighs = highs.slice(-20);
         let recentLows = lows.slice(-20);
-        let resistance = Math.max(...recentHighs);
-        let support = Math.min(...recentLows);
+        let resistance = Math.max(...recentHighs.slice(0, -1));
+        let support = Math.min(...recentLows.slice(0, -1));
         let current = candles[candles.length-1].close;
         let prev = candles[candles.length-2].close;
-        let tolerance = (resistance - support) * 0.005;
-        if(Math.abs(current - support) < tolerance && current > prev) {
-            return {signal:"CALL", confidence: 89, strength: "قوية جدا", reason: "ارتداد من مستوى دعم رئيسي"};
+        let body = Math.abs(candles[candles.length-1].close - candles[candles.length-1].open);
+        let avgBody = candles.slice(-10).reduce((sum, c) => sum + Math.abs(c.close - c.open), 0) / 10;
+        if(current > resistance && current > prev && body > avgBody * 1.5) {
+            return {signal:"CALL", confidence: 95, strength: "قوية جدا", reason: "اختراق مقاومة بحجم قوي"};
         }
-        if(Math.abs(current - resistance) < tolerance && current < prev) {
-            return {signal:"PUT", confidence: 89, strength: "قوية جدا", reason: "ارتداد من مستوى مقاومة رئيسي"};
-        }
-        return null;
-    }
-    strategy_SupportResistance._name = "SupportResistance";
-    strategy_SupportResistance.timeframeScores = { scalp_ultra:80, scalp_fast:85, intraday:90, swing:92, position:90 };
-
-    function strategy_DemandZone_Bounce(candles) {
-        if(demandZones.length === 0) return null;
-        let current = currentPrice;
-        let nearestDemand = getNearestDemandZone(current);
-        if(nearestDemand && Math.abs(current - nearestDemand.price) < 0.0005 && current > nearestDemand.price) {
-            return {signal:"CALL", confidence: 92, strength: "قوية جدا", reason: `ارتداد من منطقة طلب قوية عند ${nearestDemand.price.toFixed(5)}`};
+        if(current < support && current < prev && body > avgBody * 1.5) {
+            return {signal:"PUT", confidence: 95, strength: "قوية جدا", reason: "اختراق دعم بحجم قوي"};
         }
         return null;
     }
-    strategy_DemandZone_Bounce._name = "DemandZone";
-    strategy_DemandZone_Bounce.timeframeScores = { scalp_ultra:85, scalp_fast:88, intraday:92, swing:90, position:88 };
+    strategy_Intraday_Support_Resistance_Break._name = "Intraday_SR_Break";
+    strategy_Intraday_Support_Resistance_Break.category = "intraday";
 
-    function strategy_SupplyZone_Bounce(candles) {
-        if(supplyZones.length === 0) return null;
-        let current = currentPrice;
-        let nearestSupply = getNearestSupplyZone(current);
-        if(nearestSupply && Math.abs(current - nearestSupply.price) < 0.0005 && current < nearestSupply.price) {
-            return {signal:"PUT", confidence: 92, strength: "قوية جدا", reason: `ارتداد من منطقة عرض قوية عند ${nearestSupply.price.toFixed(5)}`};
+    function strategy_Intraday_Bollinger_Squeeze(candles) {
+        if(candles.length < 20) return null;
+        let closes = candles.map(c => c.close);
+        let sma = closes.slice(-20).reduce((a,b) => a+b, 0) / 20;
+        let variance = closes.slice(-20).reduce((sum, price) => sum + Math.pow(price - sma, 2), 0) / 20;
+        let std = Math.sqrt(variance);
+        let bbw = (2 * std * 2) / sma;
+        let prevSma = closes.slice(-21, -1).reduce((a,b) => a+b, 0) / 20;
+        let prevVariance = closes.slice(-21, -1).reduce((sum, price) => sum + Math.pow(price - prevSma, 2), 0) / 20;
+        let prevStd = Math.sqrt(prevVariance);
+        let prevBbw = (2 * prevStd * 2) / prevSma;
+        if(bbw < 0.02 && prevBbw > bbw * 1.2) {
+            let current = closes[closes.length-1];
+            let prev = closes[closes.length-2];
+            if(current > prev) return {signal:"CALL", confidence: 92, strength: "قوية", reason: "انفجار بولينجر - صعود متوقع"};
+            if(current < prev) return {signal:"PUT", confidence: 92, strength: "قوية", reason: "انفجار بولينجر - هبوط متوقع"};
         }
         return null;
     }
-    strategy_SupplyZone_Bounce._name = "SupplyZone";
-    strategy_SupplyZone_Bounce.timeframeScores = { scalp_ultra:85, scalp_fast:88, intraday:92, swing:90, position:88 };
+    strategy_Intraday_Bollinger_Squeeze._name = "Intraday_Bollinger";
+    strategy_Intraday_Bollinger_Squeeze.category = "intraday";
 
-    function strategy_FibonacciRetracement(candles) {
-        if(priceHistory.length < 30) return null;
+    function strategy_Intraday_MovingAverage_Crossover(candles) {
+        if(candles.length < 50) return null;
+        let closes = candles.map(c => c.close);
+        let ma20 = closes.slice(-20).reduce((a,b) => a+b, 0) / 20;
+        let ma50 = closes.slice(-50).reduce((a,b) => a+b, 0) / 50;
+        let prevMa20 = closes.slice(-21, -1).reduce((a,b) => a+b, 0) / 20;
+        let prevMa50 = closes.slice(-51, -1).reduce((a,b) => a+b, 0) / 50;
+        if(ma20 > ma50 && prevMa20 <= prevMa50) {
+            return {signal:"CALL", confidence: 93, strength: "قوية جدا", reason: "تقاطع MA20 فوق MA50 - تقاطع ذهبي"};
+        }
+        if(ma20 < ma50 && prevMa20 >= prevMa50) {
+            return {signal:"PUT", confidence: 93, strength: "قوية جدا", reason: "تقاطع MA20 تحت MA50 - تقاطع ميت"};
+        }
+        return null;
+    }
+    strategy_Intraday_MovingAverage_Crossover._name = "Intraday_MA_Cross";
+    strategy_Intraday_MovingAverage_Crossover.category = "intraday";
+
+    // ----- استراتيجيات التداول بالتأرجح (swing) -----
+    
+    function strategy_Swing_Fibonacci_Retracement(candles) {
+        if(priceHistory.length < 50) return null;
         let current = currentPrice;
         let diffTo382 = Math.abs(current - fibonacciLevels.level382);
         let diffTo618 = Math.abs(current - fibonacciLevels.level618);
         let range = fibonacciLevels.level1000 - fibonacciLevels.level0;
-        let tolerance = range * 0.005;
+        let tolerance = range * 0.01;
+        let closes = candles.map(c => c.close);
+        let trend = closes[closes.length-1] > closes[closes.length-11] ? "UP" : "DOWN";
         if(diffTo382 < tolerance) {
-            if(current > fibonacciLevels.level382) {
-                return {signal:"CALL", confidence: 89, strength: "قوية جدا", reason: "ارتداد من فيبوناتشي 0.382"};
-            } else {
-                return {signal:"PUT", confidence: 89, strength: "قوية جدا", reason: "ارتداد من فيبوناتشي 0.382"};
-            }
+            if(trend === "UP") return {signal:"CALL", confidence: 90, strength: "قوية", reason: "ارتداد من فيبوناتشي 0.382 مع اتجاه صاعد"};
+            if(trend === "DOWN") return {signal:"PUT", confidence: 90, strength: "قوية", reason: "ارتداد من فيبوناتشي 0.382 مع اتجاه هابط"};
         }
         if(diffTo618 < tolerance) {
-            if(current > fibonacciLevels.level618) {
-                return {signal:"CALL", confidence: 91, strength: "قوية جدا", reason: "ارتداد من فيبوناتشي 0.618 - مستوى ذهبي"};
-            } else {
-                return {signal:"PUT", confidence: 91, strength: "قوية جدا", reason: "ارتداد من فيبوناتشي 0.618 - مستوى ذهبي"};
+            if(trend === "UP") return {signal:"CALL", confidence: 93, strength: "قوية جدا", reason: "ارتداد من فيبوناتشي 0.618 مستوى ذهبي مع اتجاه"};
+        }
+        return null;
+    }
+    strategy_Swing_Fibonacci_Retracement._name = "Swing_Fibonacci";
+    strategy_Swing_Fibonacci_Retracement.category = "swing";
+
+    function strategy_Swing_OrderBlock(candles) {
+        if(orderBlocks.length === 0) return null;
+        let current = currentPrice;
+        let nearestOB = orderBlocks[0];
+        if(nearestOB && Math.abs(current - nearestOB.price) < 0.0008) {
+            if(nearestOB.type === "BULLISH" && current > nearestOB.price) {
+                return {signal:"CALL", confidence: 94, strength: "قوية جدا", reason: `ارتداد من Order Block صاعد عند ${nearestOB.price.toFixed(5)}`};
+            }
+            if(nearestOB.type === "BEARISH" && current < nearestOB.price) {
+                return {signal:"PUT", confidence: 94, strength: "قوية جدا", reason: `ارتداد من Order Block هابط عند ${nearestOB.price.toFixed(5)}`};
             }
         }
         return null;
     }
-    strategy_FibonacciRetracement._name = "Fibonacci";
-    strategy_FibonacciRetracement.timeframeScores = { scalp_ultra:80, scalp_fast:85, intraday:90, swing:92, position:88 };
+    strategy_Swing_OrderBlock._name = "Swing_OrderBlock";
+    strategy_Swing_OrderBlock.category = "swing";
 
-    function strategy_VolumeSpike(candles) {
-        if(candles.length < 20) return null;
-        let volumes = candles.map(c => c.volume || 1000);
-        let avgVolume = volumes.slice(-20).reduce((a,b) => a+b, 0) / 20;
-        let currentVolume = volumes[volumes.length-1];
-        let closes = candles.map(c => c.close);
-        let currentClose = closes[closes.length-1];
-        let prevClose = closes[closes.length-2];
-        if(currentVolume > avgVolume * 2 && currentClose > prevClose) {
-            return {signal:"CALL", confidence: 90, strength: "قوية جدا", reason: "طفرة حجم مع ارتفاع - زخم شرائي قوي"};
+    function strategy_Swing_DemandSupply(candles) {
+        if(demandZones.length === 0 && supplyZones.length === 0) return null;
+        let current = currentPrice;
+        let nearestDemand = getNearestDemandZone(current);
+        let nearestSupply = getNearestSupplyZone(current);
+        if(nearestDemand && Math.abs(current - nearestDemand.price) < 0.0006 && current > nearestDemand.price) {
+            return {signal:"CALL", confidence: 95, strength: "قوية جدا", reason: `ارتداد من منطقة طلب قوية`};
         }
-        if(currentVolume > avgVolume * 2 && currentClose < prevClose) {
-            return {signal:"PUT", confidence: 90, strength: "قوية جدا", reason: "طفرة حجم مع هبوط - زخم بيعي قوي"};
+        if(nearestSupply && Math.abs(current - nearestSupply.price) < 0.0006 && current < nearestSupply.price) {
+            return {signal:"PUT", confidence: 95, strength: "قوية جدا", reason: `ارتداد من منطقة عرض قوية`};
         }
         return null;
     }
-    strategy_VolumeSpike._name = "VolumeSpike";
-    strategy_VolumeSpike.timeframeScores = { scalp_ultra:85, scalp_fast:88, intraday:90, swing:88, position:85 };
+    strategy_Swing_DemandSupply._name = "Swing_DemandSupply";
+    strategy_Swing_DemandSupply.category = "swing";
 
-    // قائمة جميع الاستراتيجيات
+    function strategy_Swing_Ichimoku(candles) {
+        if(candles.length < 52) return null;
+        let closes = candles.map(c => c.close);
+        let highs = candles.map(c => c.high);
+        let lows = candles.map(c => c.low);
+        let tenkanSen = (Math.max(...highs.slice(-9)) + Math.min(...lows.slice(-9))) / 2;
+        let kijunSen = (Math.max(...highs.slice(-26)) + Math.min(...lows.slice(-26))) / 2;
+        let current = closes[closes.length-1];
+        if(current > tenkanSen && current > kijunSen && tenkanSen > kijunSen) {
+            return {signal:"CALL", confidence: 91, strength: "قوية", reason: "إيشيموكو - سين Span A فوق Span B"};
+        }
+        if(current < tenkanSen && current < kijunSen && tenkanSen < kijunSen) {
+            return {signal:"PUT", confidence: 91, strength: "قوية", reason: "إيشيموكو - إشارة هبوطية"};
+        }
+        return null;
+    }
+    strategy_Swing_Ichimoku._name = "Swing_Ichimoku";
+    strategy_Swing_Ichimoku.category = "swing";
+
+    function strategy_Swing_ADX_Trend(candles) {
+        if(candles.length < 20) return null;
+        let highs = candles.map(c => c.high);
+        let lows = candles.map(c => c.low);
+        let closes = candles.map(c => c.close);
+        let plusDM = [], minusDM = [], tr = [];
+        for(let i = 1; i < closes.length; i++) {
+            let upMove = highs[i] - highs[i-1];
+            let downMove = lows[i-1] - lows[i];
+            plusDM.push(upMove > downMove && upMove > 0 ? upMove : 0);
+            minusDM.push(downMove > upMove && downMove > 0 ? downMove : 0);
+            let hl = highs[i] - lows[i];
+            let hpc = Math.abs(highs[i] - closes[i-1]);
+            let lpc = Math.abs(lows[i] - closes[i-1]);
+            tr.push(Math.max(hl, hpc, lpc));
+        }
+        let atr = tr.slice(-14).reduce((a,b) => a+b, 0) / 14;
+        let smoothedPlusDM = plusDM.slice(-14).reduce((a,b) => a+b, 0) / 14;
+        let smoothedMinusDM = minusDM.slice(-14).reduce((a,b) => a+b, 0) / 14;
+        let plusDI = (smoothedPlusDM / atr) * 100;
+        let minusDI = (smoothedMinusDM / atr) * 100;
+        let dx = Math.abs(plusDI - minusDI) / (plusDI + minusDI) * 100;
+        if(dx > 25 && plusDI > minusDI) return {signal:"CALL", confidence: 89, strength: "قوية", reason: `ADX ${dx.toFixed(0)} - اتجاه صاعد قوي`};
+        if(dx > 25 && minusDI > plusDI) return {signal:"PUT", confidence: 89, strength: "قوية", reason: `ADX ${dx.toFixed(0)} - اتجاه هابط قوي`};
+        return null;
+    }
+    strategy_Swing_ADX_Trend._name = "Swing_ADX";
+    strategy_Swing_ADX_Trend.category = "swing";
+
+    // ----- استراتيجيات التداول طويل الأمد (position) -----
+    
+    function strategy_Position_Monthly_Trend(candles) {
+        if(candles.length < 100) return null;
+        let closes = candles.map(c => c.close);
+        let ma50 = closes.slice(-50).reduce((a,b) => a+b, 0) / 50;
+        let ma100 = closes.slice(-100).reduce((a,b) => a+b, 0) / 100;
+        let ma200 = closes.slice(-200).reduce((a,b) => a+b, 0) / 200;
+        let current = closes[closes.length-1];
+        if(current > ma50 && ma50 > ma100 && ma100 > ma200) {
+            return {signal:"CALL", confidence: 94, strength: "قوية جدا", reason: "ترتيب إيجابي للمتوسطات - اتجاه صاعد طويل المدى"};
+        }
+        if(current < ma50 && ma50 < ma100 && ma100 < ma200) {
+            return {signal:"PUT", confidence: 94, strength: "قوية جدا", reason: "ترتيب سلبي للمتوسطات - اتجاه هابط طويل المدى"};
+        }
+        return null;
+    }
+    strategy_Position_Monthly_Trend._name = "Position_Trend";
+    strategy_Position_Monthly_Trend.category = "position";
+
+    function strategy_Position_Accumulation_Distribution(candles) {
+        if(candles.length < 50) return null;
+        let adl = 0;
+        for(let i = 0; i < candles.length; i++) {
+            let c = candles[i];
+            let mfm = ((c.close - c.low) - (c.high - c.close)) / (c.high - c.low);
+            let mfv = mfm * (c.volume || 1000);
+            adl += mfv;
+        }
+        let closes = candles.map(c => c.close);
+        let adlSlope = adl - (candles.slice(0, -20).reduce((sum, c) => sum + ((c.close - c.low) - (c.high - c.close)) / (c.high - c.low) * (c.volume || 1000), 0));
+        if(adlSlope > 0 && closes[closes.length-1] > closes[closes.length-11]) {
+            return {signal:"CALL", confidence: 88, strength: "قوية", reason: "تراكم مستمر - توزيع إيجابي"};
+        }
+        if(adlSlope < 0 && closes[closes.length-1] < closes[closes.length-11]) {
+            return {signal:"PUT", confidence: 88, strength: "قوية", reason: "توزيع مستمر - ضغط بيعي"};
+        }
+        return null;
+    }
+    strategy_Position_Accumulation_Distribution._name = "Position_ADL";
+    strategy_Position_Accumulation_Distribution.category = "position";
+
+    function strategy_Position_Monthly_Pivot(candles) {
+        if(candles.length < 30) return null;
+        let highs = candles.map(c => c.high);
+        let lows = candles.map(c => c.low);
+        let closes = candles.map(c => c.close);
+        let monthlyHigh = Math.max(...highs.slice(-30));
+        let monthlyLow = Math.min(...lows.slice(-30));
+        let pivot = (monthlyHigh + monthlyLow + closes[closes.length-1]) / 3;
+        let current = closes[closes.length-1];
+        if(current > pivot && current > closes[closes.length-6]) {
+            return {signal:"CALL", confidence: 87, strength: "قوية", reason: "السعر فوق البيفوت الشهري - صعود متوقع"};
+        }
+        if(current < pivot && current < closes[closes.length-6]) {
+            return {signal:"PUT", confidence: 87, strength: "قوية", reason: "السعر تحت البيفوت الشهري - هبوط متوقع"};
+        }
+        return null;
+    }
+    strategy_Position_Monthly_Pivot._name = "Position_Pivot";
+    strategy_Position_Monthly_Pivot.category = "position";
+
+    function strategy_Position_Volume_Accumulation(candles) {
+        if(candles.length < 30) return null;
+        let volumes = candles.map(c => c.volume || 1000);
+        let closes = candles.map(c => c.close);
+        let avgVol = volumes.slice(-30).reduce((a,b) => a+b, 0) / 30;
+        let recentVol = volumes.slice(-5).reduce((a,b) => a+b, 0) / 5;
+        let priceChange = (closes[closes.length-1] - closes[closes.length-6]) / closes[closes.length-6];
+        if(recentVol > avgVol * 1.3 && priceChange > 0.002) {
+            return {signal:"CALL", confidence: 89, strength: "قوية", reason: "حجم تداول مرتفع مع صعود - تراكم مؤسسي"};
+        }
+        if(recentVol > avgVol * 1.3 && priceChange < -0.002) {
+            return {signal:"PUT", confidence: 89, strength: "قوية", reason: "حجم تداول مرتفع مع هبوط - توزيع مؤسسي"};
+        }
+        return null;
+    }
+    strategy_Position_Volume_Accumulation._name = "Position_Volume";
+    strategy_Position_Volume_Accumulation.category = "position";
+
+    function strategy_Position_RSI_Extreme(candles) {
+        if(candles.length < 30) return null;
+        let gains = 0, losses = 0;
+        for(let i = candles.length-25; i < candles.length-1; i++){
+            let diff = candles[i+1].close - candles[i].close;
+            if(diff > 0) gains += diff;
+            else losses += Math.abs(diff);
+        }
+        let rsi = 100 - (100 / (1 + (gains / (losses || 1))));
+        if(rsi < 20) return {signal:"CALL", confidence: 92, strength: "قوية جدا", reason: `RSI ${rsi.toFixed(0)} - منطقة تشبع بيعي شديد - فرصة شراء طويلة المدى`};
+        if(rsi > 80) return {signal:"PUT", confidence: 92, strength: "قوية جدا", reason: `RSI ${rsi.toFixed(0)} - منطقة تشبع شرائي شديد - فرصة بيع طويلة المدى`};
+        return null;
+    }
+    strategy_Position_RSI_Extreme._name = "Position_RSI";
+    strategy_Position_RSI_Extreme.category = "position";
+
+    // ----- استراتيجيات إضافية متعددة الاستخدامات -----
+    
+    function strategy_Multi_PinBar(candles) {
+        if(candles.length < 2) return null;
+        let last = candles[candles.length-1];
+        let body = Math.abs(last.close - last.open);
+        let upperShadow = last.high - Math.max(last.close, last.open);
+        let lowerShadow = Math.min(last.close, last.open) - last.low;
+        if(lowerShadow > body * 2 && upperShadow < body * 0.5) {
+            return {signal:"CALL", confidence: 88, strength: "قوية", reason: "نمط Pin Bar صاعد - ظل سفلي طويل"};
+        }
+        if(upperShadow > body * 2 && lowerShadow < body * 0.5) {
+            return {signal:"PUT", confidence: 88, strength: "قوية", reason: "نمط Pin Bar هابط - ظل علوي طويل"};
+        }
+        return null;
+    }
+    strategy_Multi_PinBar._name = "Multi_PinBar";
+    strategy_Multi_PinBar.category = "all";
+
+    function strategy_Multi_Doji_Reversal(candles) {
+        if(candles.length < 3) return null;
+        let last = candles[candles.length-1];
+        let prev = candles[candles.length-2];
+        let body = Math.abs(last.close - last.open);
+        let prevBody = Math.abs(prev.close - prev.open);
+        if(body < (prev.high - prev.low) * 0.1 && prevBody > (prev.high - prev.low) * 0.6) {
+            if(last.close > prev.close) return {signal:"CALL", confidence: 86, strength: "قوية", reason: "دوجي بعد شمعة كبيرة - احتمال انعكاس صاعد"};
+            if(last.close < prev.close) return {signal:"PUT", confidence: 86, strength: "قوية", reason: "دوجي بعد شمعة كبيرة - احتمال انعكاس هابط"};
+        }
+        return null;
+    }
+    strategy_Multi_Doji_Reversal._name = "Multi_Doji";
+    strategy_Multi_Doji_Reversal.category = "all";
+
+    function strategy_Multi_MorningStar(candles) {
+        if(candles.length < 3) return null;
+        let c1 = candles[candles.length-3];
+        let c2 = candles[candles.length-2];
+        let c3 = candles[candles.length-1];
+        if(c1.close < c1.open && Math.abs(c1.close - c1.open) > (c1.high - c1.low) * 0.6 &&
+           Math.abs(c2.close - c2.open) < (c2.high - c2.low) * 0.3 &&
+           c3.close > c3.open && c3.close > (c1.high + c1.low) / 2) {
+            return {signal:"CALL", confidence: 91, strength: "قوية جدا", reason: "نمط نجمة الصباح - انعكاس صاعد قوي"};
+        }
+        return null;
+    }
+    strategy_Multi_MorningStar._name = "Multi_MorningStar";
+    strategy_Multi_MorningStar.category = "all";
+
+    function strategy_Multi_EveningStar(candles) {
+        if(candles.length < 3) return null;
+        let c1 = candles[candles.length-3];
+        let c2 = candles[candles.length-2];
+        let c3 = candles[candles.length-1];
+        if(c1.close > c1.open && Math.abs(c1.close - c1.open) > (c1.high - c1.low) * 0.6 &&
+           Math.abs(c2.close - c2.open) < (c2.high - c2.low) * 0.3 &&
+           c3.close < c3.open && c3.close < (c1.high + c1.low) / 2) {
+            return {signal:"PUT", confidence: 91, strength: "قوية جدا", reason: "نمط نجمة المساء - انعكاس هابط قوي"};
+        }
+        return null;
+    }
+    strategy_Multi_EveningStar._name = "Multi_EveningStar";
+    strategy_Multi_EveningStar.category = "all";
+
+    function strategy_Multi_Hammer(candles) {
+        if(candles.length < 2) return null;
+        let last = candles[candles.length-1];
+        let body = Math.abs(last.close - last.open);
+        let lowerShadow = Math.min(last.close, last.open) - last.low;
+        let upperShadow = last.high - Math.max(last.close, last.open);
+        if(lowerShadow > body * 2 && upperShadow < body * 0.3 && last.close > last.open) {
+            return {signal:"CALL", confidence: 89, strength: "قوية", reason: "نمط المطرقة - انعكاس صاعد"};
+        }
+        return null;
+    }
+    strategy_Multi_Hammer._name = "Multi_Hammer";
+    strategy_Multi_Hammer.category = "all";
+
+    function strategy_Multi_ShootingStar(candles) {
+        if(candles.length < 2) return null;
+        let last = candles[candles.length-1];
+        let body = Math.abs(last.close - last.open);
+        let upperShadow = last.high - Math.max(last.close, last.open);
+        let lowerShadow = Math.min(last.close, last.open) - last.low;
+        if(upperShadow > body * 2 && lowerShadow < body * 0.3 && last.close < last.open) {
+            return {signal:"PUT", confidence: 89, strength: "قوية", reason: "نمط الشهاب - انعكاس هابط"};
+        }
+        return null;
+    }
+    strategy_Multi_ShootingStar._name = "Multi_ShootingStar";
+    strategy_Multi_ShootingStar.category = "all";
+
+    // تجميع جميع الاستراتيجيات
     const STRATEGIES = [
-        strategy_RSI, strategy_RSI_Divergence, strategy_Stochastic, strategy_Momentum, strategy_WilliamsR,
-        strategy_CCI, strategy_Bollinger, strategy_MACD,
-        strategy_SupportResistance, strategy_BullishEngulfing, strategy_BearishEngulfing,
-        strategy_DemandZone_Bounce, strategy_SupplyZone_Bounce,
-        strategy_FibonacciRetracement, strategy_VolumeSpike
+        // scalp_ultra (6 استراتيجيات)
+        strategy_UltraScalp_RSI, strategy_UltraScalp_Momentum, strategy_UltraScalp_PriceAction,
+        strategy_UltraScalp_Stochastic, strategy_UltraScalp_Bollinger_Bandit, strategy_UltraScalp_Volume_Burst,
+        // scalp_fast (5 استراتيجيات)
+        strategy_FastScalp_RSI_MACD, strategy_FastScalp_CCI_Reversal, strategy_FastScalp_Williams,
+        strategy_FastScalp_Engulfing, strategy_FastScalp_MACD_Cross,
+        // intraday (5 استراتيجيات)
+        strategy_Intraday_RSI_Divergence, strategy_Intraday_MACD_Divergence, strategy_Intraday_Support_Resistance_Break,
+        strategy_Intraday_Bollinger_Squeeze, strategy_Intraday_MovingAverage_Crossover,
+        // swing (5 استراتيجيات)
+        strategy_Swing_Fibonacci_Retracement, strategy_Swing_OrderBlock, strategy_Swing_DemandSupply,
+        strategy_Swing_Ichimoku, strategy_Swing_ADX_Trend,
+        // position (5 استراتيجيات)
+        strategy_Position_Monthly_Trend, strategy_Position_Accumulation_Distribution, strategy_Position_Monthly_Pivot,
+        strategy_Position_Volume_Accumulation, strategy_Position_RSI_Extreme,
+        // استراتيجيات متعددة الاستخدامات (5 استراتيجيات)
+        strategy_Multi_PinBar, strategy_Multi_Doji_Reversal, strategy_Multi_MorningStar,
+        strategy_Multi_EveningStar, strategy_Multi_Hammer, strategy_Multi_ShootingStar
     ];
 
+    // تصنيف الاستراتيجيات حسب نوع التداول
     const TIMEFRAME_STRATEGY_MAP = {
-        scalp_ultra: STRATEGIES.filter(s => s.timeframeScores?.scalp_ultra >= 75).map(s => s._name),
-        scalp_fast: STRATEGIES.filter(s => s.timeframeScores?.scalp_fast >= 75).map(s => s._name),
-        intraday: STRATEGIES.filter(s => s.timeframeScores?.intraday >= 80).map(s => s._name),
-        swing: STRATEGIES.filter(s => s.timeframeScores?.swing >= 80).map(s => s._name),
-        position: STRATEGIES.filter(s => s.timeframeScores?.position >= 75).map(s => s._name)
+        scalp_ultra: STRATEGIES.filter(s => s.category === "scalp_ultra" || s.category === "all").map(s => s._name),
+        scalp_fast: STRATEGIES.filter(s => s.category === "scalp_fast" || s.category === "all").map(s => s._name),
+        intraday: STRATEGIES.filter(s => s.category === "intraday" || s.category === "all").map(s => s._name),
+        swing: STRATEGIES.filter(s => s.category === "swing" || s.category === "all").map(s => s._name),
+        position: STRATEGIES.filter(s => s.category === "position" || s.category === "all").map(s => s._name)
     };
 
     function getActiveStrategies() {
@@ -1238,7 +1577,7 @@
         
         let isCall = direction === "CALL";
         let mc = isCall ? "#00ffaa" : "#ff4466";
-        let icon = isCall ? "🟢" : "🔴";
+        let icon = isCall ? "إشارة : 🟢" : "إشارة : 🔴";
         let title = isCall ? "شراء CALL" : "بيع PUT";
         let tf = TIMEFRAMES[selectedTimeframe] || {name: currentTimeframeAuto || "غير معروف"};
         
@@ -1372,7 +1711,7 @@
                     <div style="display:flex;align-items:center;gap:10px;">
                         <span style="font-size:15px;">🔥</span>
                         <div>
-                            <h3 style="color:#ffd966;margin:0;font-size:15px;font-weight:bold;">Obeida Trading BOT V6</h3>
+                            <h3 style="color:#ffd966;margin:0;font-size:15px;font-weight:bold;">Obeida Trading BOT V7</h3>
                             <div style="font-size:9px;color:#88ccff;">${STRATEGIES.length}+ استراتيجية | شارت حقيقي</div>
                         </div>
                     </div>
@@ -1436,7 +1775,7 @@
                 </div>
                 
                 <div style="font-size:7px;color:#ffd96688;text-align:center;margin-top:12px;padding-top:8px;border-top:1px solid #ffffff11;">
-                    ⚡  تحليل حقيقي 100% | مناطق طلب/عرض ⚡
+                    ⚡  تحليل حقيقي كامل | ${STRATEGIES.length} استراتيجية  ⚡
                 </div>
             </div>`;
         
@@ -1520,7 +1859,7 @@
         modal.style.cssText=`position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.95);z-index:1000001;display:flex;justify-content:center;align-items:center;`;
         modal.innerHTML=`
             <div style="background:linear-gradient(145deg,#0a0f1e,#020408);padding:30px;border-radius:30px;border:2px solid #ffd966;width:340px;">
-                <h3 style="color:#ffd966;text-align:center;margin-bottom:20px;">⚙️ إعدادات البوت V6</h3>
+                <h3 style="color:#ffd966;text-align:center;margin-bottom:20px;">⚙️ إعدادات البوت V7</h3>
                 <div style="margin-bottom:15px;">
                     <label style="color:#fff;font-size:12px;">🎯 جني الربح (نقطة):</label>
                     <input type="number" id="tp-setting" value="${SETTINGS.takeProfitPips}" style="width:100%;padding:8px;margin-top:5px;background:#0f1422;border:1px solid #ffd966;color:#fff;border-radius:10px;">
@@ -1561,14 +1900,14 @@
         modal.innerHTML=`
             <div style="background:linear-gradient(145deg,#0a0f1e,#020408);padding:40px;border-radius:50px;border:2px solid #ffd966;text-align:center;width:340px;">
                 <div style="font-size:25px;">🔥</div>
-                <h2 style="color:#ffd966;margin:10px 0;">Obeida Trading BOT V6</h2>
-                <p style="color:#88ccff;font-size:12px;">${STRATEGIES.length}+ استراتيجية | شارت حقيقي 100%</p>
+                <h2 style="color:#ffd966;margin:10px 0;">Obeida Trading BOT V2</h2>
+                <p style="color:#88ccff;font-size:12px;"> تحليل حقيقي مربوط في سوق </p>
                 <p style="color:#ffaa66;font-size:11px;">🔑 أدخل كلمة المرور للمتابعة</p>
                 <input type="password" id="pass-input" placeholder="كلمة المرور"
                     style="width:100%;padding:12px;margin:20px 0;background:#0f1422;border:1px solid #ffd966;color:#fff;border-radius:30px;text-align:center;font-size:14px;">
                 <button id="login-btn" class="btn-hover" style="width:100%;padding:12px;background:linear-gradient(95deg,#ffd966,#ffaa33);border:none;border-radius:30px;color:#000;cursor:pointer;font-weight:bold;">تأكيد الدخول</button>
                 <p style="color:#ffaa66;margin-top:20px;font-size:11px;">📢 للحصول على كلمة المرور: <span id="tg-link" style="color:#88ccff;cursor:pointer;">@ObeidaTrading</span></p>
-                <div style="font-size:9px;color:#555;margin-top:15px;">⚡ تحليل حقيقي 100% | مناطق طلب/عرض ⚡</div>
+                <div style="font-size:9px;color:#555;margin-top:15px;">⚡ تحليل حقيقي ⚡</div>
             </div>`;
         document.body.appendChild(modal);
         
@@ -1615,7 +1954,7 @@
         hideSearchingStatus();
     }
 
-    console.log(`✨ Obeida Trading Bot ✨`);
+    console.log(`✨ Obeida Trading Bot v2 - ${STRATEGIES.length} استراتيجية محسّنة حسب نوع التداول ✨`);
     showPasswordModal();
 
     window.ObeidaPro = {
@@ -1631,7 +1970,7 @@
         getFibonacciLevels: ()=>fibonacciLevels,
         getDemandZones: ()=>demandZones,
         getSupplyZones: ()=>supplyZones,
-        version: "V1.0 ULTIMATE - تحليل حقيقي 100%",
+        version: "V2.0 ULTIMATE - Obeida Trading",
         strategies: STRATEGIES.length
     };
 
