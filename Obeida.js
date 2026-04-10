@@ -1356,7 +1356,7 @@ function initTimeframeDetectionV2() {
                 <div style="display:flex;justify-content:space-between;align-items:center;">
                     <div style="display:flex;align-items:center;gap:10px;">
                         <span style="font-size:15px;">🔥</span>
-                        <div><h3 style="color:#ffd966;margin:0;font-size:15px;font-weight:bold;">Obeida Trading BOT V8</h3>
+                        <div><h3 style="color:#ffd966;margin:0;font-size:15px;font-weight:bold;">Obeida Trading </h3>
                         <div style="font-size:9px;color:#88ccff;"> 🤯 البوت الأقوى في الوطن العربي 🤯</div></div>
                     </div>
                     <div style="display:flex;gap:8px;">
@@ -1539,9 +1539,9 @@ function initTimeframeDetectionV2() {
         modal.innerHTML=`
             <div style="background:linear-gradient(145deg,#0a0f1e,#020408);padding:40px;border-radius:50px;border:2px solid #ffd966;text-align:center;width:340px;">
                 <div style="font-size:25px;">🔥</div>
-                <h2 style="color:#ffd966;margin:10px 0;">Obeida Trading BOT V8</h2>
+                <h2 style="color:#ffd966;margin:10px 0;">Obeida BOT</h2>
                 <p style="color:#88ccff;font-size:12px;">تحليل حقيقي مربوط في سوق</p>
-                <p style="color:#ffaa66;font-size:11px;">🔑 أدخل كلمة المرور للمتابعة</p>
+                <p style="color:#ffaa66;font-size:11px;">🔑 أدخل كلمة المرور للمتابعة 🔑</p>
                 <input type="password" id="pass-input" placeholder="كلمة المرور"
                     style="width:100%;padding:12px;margin:20px 0;background:#0f1422;border:1px solid #ffd966;color:#fff;border-radius:30px;text-align:center;font-size:14px;">
                 <button id="login-btn" class="btn-hover" style="width:100%;padding:12px;background:linear-gradient(95deg,#ffd966,#ffaa33);border:none;border-radius:30px;color:#000;cursor:pointer;font-weight:bold;">تأكيد الدخول</button>
