@@ -1357,7 +1357,7 @@ function initTimeframeDetectionV2() {
                     <div style="display:flex;align-items:center;gap:10px;">
                         <span style="font-size:15px;">🔥</span>
                         <div><h3 style="color:#ffd966;margin:0;font-size:15px;font-weight:bold;">Obeida Trading BOT V8</h3>
-                        <div style="font-size:9px;color:#88ccff;"> 🤯 البوت الأقوى في الوطن العربي 🤯/div></div>
+                        <div style="font-size:9px;color:#88ccff;"> 🤯 البوت الأقوى في الوطن العربي 🤯</div></div>
                     </div>
                     <div style="display:flex;gap:8px;">
                         <button id="minimize-btn" style="background:#ffd96622;border:none;color:#ffd966;cursor:pointer;font-size:14px;width:28px;height:28px;border-radius:50%;">−</button>
