@@ -2694,87 +2694,108 @@
         setTimeout(()=>div.remove(), 3000);
     }
 
-    // ========== عرض الإشارة بنظام الشريط العلوي (Modern Top Bar) ==========
-    function showSignal(direction, strength, confidence, reason, candlePattern = null) {
-        let entryPrice = currentPrice > 0 ? currentPrice : 1.10000;
-        let optimalEntry = getOptimalEntry(entryPrice, direction);
-        
-        let isCall = direction === "CALL";
-        let mc = isCall ? "#00ffaa" : "#ff4466";
-        let title = isCall ? "إشارة : شراء - BUY" : "إشارة : بيع - SELL";
-        let icon = isCall ? "🟢" : "🔴";
-        
-        // عرض نمط الشمعة إذا وجد
-        let candleInfo = candlePattern ? `<span style="color:#ffaa66;font-size:9px;"> | 📊 ${candlePattern}</span>` : '';
-        
-        // تنفيذ الصفقة تلقائياً إذا كان الإعداد مفعلاً
-        if(canOpenTrade() && SETTINGS.autoExecuteTrades) {
-            openTrade(direction, entryPrice, confidence, reason);
-        }
-
-        // إنشاء عنصر الشريط العلوي
-        let bar = document.createElement('div');
-        bar.id = 'signal-top-bar';
-        bar.style.cssText = `
-            position: fixed; top: -100px; left: 0; width: 100%; height: 65px;
-            background: rgba(20, 23, 28, 0.98); backdrop-filter: blur(15px);
-            z-index: 1000000; display: flex; align-items: center; justify-content: space-between;
-            padding: 0 30px; border-bottom: 3px solid ${mc}; box-shadow: 0 5px 25px rgba(0,0,0,0.6);
-            transition: all 0.4s cubic-bezier(0.68, -0.55, 0.27, 1.55); direction: rtl; font-family: 'Segoe UI', Tahoma, sans-serif;
-        `;
-
-        bar.innerHTML = `
-            <div style="display: flex; align-items: center; gap: 15px;">
-                <div style="font-size: 28px; filter: drop-shadow(0 0 5px ${mc});">${icon}</div>
-                <div>
-                    <div style="color: ${mc}; font-size: 18px; font-weight: bold; letter-spacing: 1px;">${title}${candleInfo}</div>
-                    <div style="color: #aaa; font-size: 10px; margin-top: 3px;">✨ ${reason.substring(0, 55)}...</div>
-                </div>
-            </div>
-
-            <div style="display: flex; gap: 35px; align-items: center;">
-                <div style="text-align: center;">
-                    <div style="color: #aaa; font-size: 9px; letter-spacing: 0.5px;">الدقة</div>
-                    <div style="color: #ffd966; font-size: 18px; font-weight: bold;">${confidence.toFixed(0)}<span style="font-size: 11px;">%</span></div>
-                </div>
-                <div style="text-align: center;">
-                    <div style="color: #aaa; font-size: 9px;">نقطة الدخول</div>
-                    <div style="color: #00ffaa; font-size: 16px; font-weight: bold; font-family: monospace;">${optimalEntry.toFixed(5)}</div>
-                </div>
-                <div style="text-align: center;">
-                    <div style="color: #aaa; font-size: 9px;">القوة</div>
-                    <div style="color: #ffaa66; font-size: 14px; font-weight: bold;">${strength}</div>
-                </div>
-            </div>
-
-            <div id="bar-timer-progress" style="position: absolute; bottom: 0; left: 0; height: 3px; background: ${mc}; width: 100%; transition: width linear;"></div>
-        `;
-
-        document.body.appendChild(bar);
-
-        // تحريك الشريط للأسفل (إظهار)
-        setTimeout(() => { bar.style.top = '0'; }, 50);
-
-        // تفعيل مؤشر الوقت التنازلي (Progress Bar)
-        let startTime = Date.now();
-        let duration = SETTINGS.signalDuration;
-        let progressBar = document.getElementById('bar-timer-progress');
-        
-        let timerInterval = setInterval(() => {
-            let elapsed = Date.now() - startTime;
-            let remaining = Math.max(0, 100 - (elapsed / duration * 100));
-            if(progressBar) progressBar.style.width = remaining + '%';
-            if(elapsed >= duration) clearInterval(timerInterval);
-        }, 20);
-
-        // إخفاء وحذف الشريط بعد انتهاء الوقت
-        setTimeout(() => {
-            bar.style.top = '-100px';
-            setTimeout(() => { 
-                if(bar && bar.remove) bar.remove(); 
-            }, 400);
-        }, SETTINGS.signalDuration);
+    // ========== عرض الإشارة (شريط سفلي متحرك - يمكن التحكم بحجمه ومسافته) ==========
+function showSignal(direction, strength, confidence, reason, candlePattern = null) {
+    let entryPrice = currentPrice > 0 ? currentPrice : 1.10000;
+    let optimalEntry = getOptimalEntry(entryPrice, direction);
+    
+    let isCall = direction === "CALL";
+    let mc = isCall ? "#00ffaa" : "#ff4466";
+    let title = isCall ? "إشارة : شراء - BUY" : "إشارة : بيع - SELL";
+    let icon = isCall ? "🟢" : "🔴";
+    
+    let candleInfo = candlePattern ? `<span style="color:#ffaa66;font-size:9px;"> | 📊 ${candlePattern}</span>` : '';
+    
+    if(canOpenTrade() && SETTINGS.autoExecuteTrades) {
+        openTrade(direction, entryPrice, confidence, reason);
     }
+
+    // ====== إعدادات التحكم (عدل من هنا) ======
+    let barHeight = 60;           // الارتفاع بالبكسل (60-80 مناسب)
+    let barWidth = 90;            // العرض بالنسبة المئوية (80-95)
+    let bottomDistance = 80;      // المسافة من الأسفل بالبكسل (20-150)
+    let fontSize = 12;            // حجم الخط الرئيسي
+    let iconSize = 20;            // حجم الأيقونة
+    // ======================================
+
+    let bar = document.createElement('div');
+    bar.id = 'signal-bottom-bar';
+    bar.style.cssText = `
+        position: fixed;
+        bottom: -100px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: ${barWidth}%;
+        max-width: 650px;
+        height: ${barHeight}px;
+        background: rgba(10, 15, 25, 0.95);
+        backdrop-filter: blur(12px);
+        z-index: 1000000;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 0 20px;
+        border-radius: ${barHeight/2}px;
+        border-right: 3px solid ${mc};
+        border-left: 1px solid rgba(255,255,255,0.1);
+        box-shadow: 0 8px 25px rgba(0,0,0,0.4);
+        direction: rtl;
+        font-family: 'Segoe UI', Tahoma, sans-serif;
+        transition: all 0.4s cubic-bezier(0.68, -0.55, 0.27, 1.55);
+    `;
+
+    bar.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <div style="font-size: ${iconSize}px; filter: drop-shadow(0 0 3px ${mc});">${icon}</div>
+            <div>
+                <div style="color: ${mc}; font-size: ${fontSize}px; font-weight: bold;">${title}${candleInfo}</div>
+                <div style="color: #aaa; font-size: ${fontSize-5}px; margin-top: 2px;">✨ ${reason.substring(0, 45)}...</div>
+            </div>
+        </div>
+
+        <div style="display: flex; gap: 20px;">
+            <div style="text-align: center;">
+                <div style="color: #888; font-size: ${fontSize-6}px;">الثقة</div>
+                <div style="color: #ffd966; font-size: ${fontSize+2}px; font-weight: bold;">${confidence.toFixed(0)}%</div>
+            </div>
+            <div style="text-align: center;">
+                <div style="color: #888; font-size: ${fontSize-6}px;">الدخول</div>
+                <div style="color: #00ffaa; font-size: ${fontSize-2}px; font-weight: bold;">${optimalEntry.toFixed(5)}</div>
+            </div>
+            <div style="text-align: center;">
+                <div style="color: #888; font-size: ${fontSize-6}px;">القوة</div>
+                <div style="color: #ffaa66; font-size: ${fontSize-2}px; font-weight: bold;">${strength}</div>
+            </div>
+        </div>
+
+        <div style="position: absolute; bottom: 0; left: 0; height: 3px; background: ${mc}; width: 100%; border-radius: 0 0 ${barHeight/2}px ${barHeight/2}px; transition: width linear;"></div>
+    `;
+
+    document.body.appendChild(bar);
+
+    // إظهار الشريط من الأسفل للمسافة المحددة
+    setTimeout(() => { bar.style.bottom = `${bottomDistance}px`; }, 50);
+
+    // مؤشر الوقت
+    let startTime = Date.now();
+    let duration = SETTINGS.signalDuration;
+    let progressBar = bar.querySelector('div[style*="position: absolute"]');
+    
+    let timerInterval = setInterval(() => {
+        let elapsed = Date.now() - startTime;
+        let remaining = Math.max(0, 100 - (elapsed / duration * 100));
+        if(progressBar) progressBar.style.width = remaining + '%';
+        if(elapsed >= duration) clearInterval(timerInterval);
+    }, 20);
+
+    // إخفاء وحذف الشريط
+    setTimeout(() => {
+        bar.style.bottom = '-100px';
+        setTimeout(() => { 
+            if(bar && bar.remove) bar.remove(); 
+        }, 400);
+    }, SETTINGS.signalDuration);
+}
 
     function showSearchingStatus() {
         if(searchStatusDiv) return;
@@ -2916,7 +2937,7 @@
                     <div style="display:flex;align-items:center;gap:10px;">
                         <span style="font-size:15px;">🔥</span>
                         <div><h3 style="color:#ffd966;margin:0;font-size:15px;font-weight:bold;">Obeida BOT V2</h3>
-                        <div style="font-size:9px;color:#88ccff;"> 🤯 البوت الأقوى في الوطن العربي 🤯</div></div>
+                        <div style="font-size:9px;color:#88ccff;"> 🤯 ملوك التداول الألي 🤯</div></div>
                     </div>
                     <div style="display:flex;gap:8px;">
                         <button id="minimize-btn" style="background:#ffd96622;border:none;color:#ffd966;cursor:pointer;font-size:14px;width:28px;height:28px;border-radius:50%;">−</button>
