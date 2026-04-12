@@ -764,25 +764,48 @@
     function strategy_ChannelBreak(candles) {
     if(candles.length < 20) return null;
     
-    // فحص صحة البيانات أولاً
-    let lastCandle = candles[candles.length-1];
-    if(lastCandle.high > 1000 || lastCandle.low < 0.00001) return null;
+    // فحص صحة آخر شمعة
+    let curr = candles[candles.length-1];
+    if (!curr || typeof curr.close !== 'number' || curr.close > 1000 || curr.close < 0.00001) {
+        return null;
+    }
+    if (curr.high > 1000 || curr.low < 0.00001) {
+        return null;
+    }
     
     let highs = candles.map(c => c.high);
     let upperChannel = highs.slice(-20).reduce((a,b) => a+b, 0) / 20;
+    
+    // فحص صحة قيمة القناة
+    if (upperChannel > 1000 || upperChannel < 0.00001) {
+        return null;
+    }
+    
     let rsi = calculateRSI(candles, 14);
-    let curr = candles[candles.length-1];
     
-    // تأكد من أن السعر في نطاق معقول
-    if(curr.close > 10 || curr.close < 0.0001) return null;
+    // فحص صحة قيمة RSI
+    if (isNaN(rsi) || rsi < 0 || rsi > 100) {
+        return null;
+    }
     
+    // فحص السعر مقابل القناة
     if(curr.close > upperChannel && rsi < 70 && rsi > 30 && checkLiquidity()) {
-        return {signal:"CALL", confidence: 91, strength: "قوية", reason: "Channel Break - Price > Upper Channel", candlePattern: "INSTITUTIONAL_MARUBOZU"};
+        // فحص إضافي: السعر يجب أن يكون قريب من القناة وليس بعيد جداً
+        let priceDiff = Math.abs(curr.close - upperChannel) / upperChannel;
+        if (priceDiff > 0.05) return null; // لا تدخل إذا كان السعر بعيد جداً عن القناة
+        
+        return {
+            signal: "CALL", 
+            confidence: 91, 
+            strength: "قوية", 
+            reason: "Channel Break - Price > Upper Channel + RSI OK", 
+            candlePattern: "INSTITUTIONAL_MARUBOZU"
+        };
     }
     return null;
 }
-    strategy_ChannelBreak._name = "Channel Break";
-    strategy_ChannelBreak.category = "scalp_fast";
+strategy_ChannelBreak._name = "Channel Break";
+strategy_ChannelBreak.category = "scalp_fast";
 
     function strategy_VolumeProfileQuick(candles) {
         if(candles.length < 2) return null;
@@ -3024,28 +3047,34 @@
         };
         
         function updateLiveCandle(price, timestamp) {
-    // أضف هذا الفلتر لمنع الأرقام الخاطئة
-    if (price > 1000 || price < 0.00001) {
-        console.warn("⚠️ تم تجاهل سعر غير منطقي:", price);
-        return;
-    }
-    
+    if (price > 1000) return;
+    if (price < 0.00001) return;
     if (priceHistory.length === 0) return;
-    const currentCandleTime = Math.floor(timestamp / 60000) * 60000;
-    let lastCandle = priceHistory[priceHistory.length - 1];
+    
+    var currentCandleTime = Math.floor(timestamp / 60000) * 60000;
+    var lastCandle = priceHistory[priceHistory.length - 1];
     
     if (lastCandle.time !== currentCandleTime) {
-        priceHistory.push({ time: currentCandleTime, open: price, high: price, low: price, close: price, volume: 1000 });
+        priceHistory.push({
+            time: currentCandleTime,
+            open: price,
+            high: price,
+            low: price,
+            close: price,
+            volume: 1000
+        });
         if (priceHistory.length > 500) priceHistory.shift();
     } else {
         lastCandle.close = price;
         if (price > lastCandle.high) lastCandle.high = price;
         if (price < lastCandle.low) lastCandle.low = price;
     }
+    
     currentPrice = price;
     updatePriceDisplay(currentPrice, (currentPrice - lastPrice).toFixed(5));
     lastPrice = currentPrice;
-}
+      }
+    }
 
     // =====================================================
     // ========== رادار السعر اللحظي ==========
@@ -3224,9 +3253,9 @@
     }
     
     // ========== تحديث مستويات فيبوناتشي مع التحقق من صحة البيانات ==========
-    function updateFibonacciLevels() {
+function updateFibonacciLevels() {
     if (!priceHistory || priceHistory.length < 10) {
-        console.warn("⚠️ انتظار تجميع بيانات العملة الجديدة...");
+        console.warn("⚠️ انتظار تجميع بيانات العملة الجديدة لحساب فيبوناتشي...");
         return;
     }
 
@@ -3234,17 +3263,25 @@
     let highs = recentPrices.map(p => p.high || p.close);
     let lows = recentPrices.map(p => p.low || p.close);
     
-    // فلتر الأرقام الخاطئة
+    // ========== فلتر الأرقام الخاطئة ==========
     let validHighs = highs.filter(h => h > 0.0001 && h < 1000);
     let validLows = lows.filter(l => l > 0.0001 && l < 1000);
     
-    if(validHighs.length === 0 || validLows.length === 0) return;
+    if (validHighs.length === 0 || validLows.length === 0) {
+        console.warn("⚠️ لا توجد بيانات صالحة لحساب فيبوناتشي");
+        return;
+    }
     
     swingHigh = Math.max(...validHighs);
     swingLow = Math.min(...validLows);
     
     let range = swingHigh - swingLow;
-    if (range === 0 || range > 10) return; // منع النطاق الخاطئ
+    
+    // منع النطاق الخاطئ (أكبر من 10 أو صفر)
+    if (range === 0 || range > 10) {
+        console.warn("⚠️ نطاق فيبوناتشي غير طبيعي:", range);
+        return;
+    }
 
     fibonacciLevels = {
         level0: swingLow,
@@ -3259,77 +3296,119 @@
     };
     updateFibonacciDisplay();
 }
-    
-    function updateFibonacciDisplay() {
-        const fibEl = document.getElementById('fib-levels');
-        if (fibEl) {
-            fibEl.innerHTML = `<div style="background:#00000066;border-radius:12px;padding:8px;margin-bottom:10px;">
-                <div style="font-size:9px;color:#ffd966;margin-bottom:4px;">📐 مستويات فيبوناتشي</div>
-                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:3px;font-size:7px;">
-                    <div style="color:#ffd966;">0.236: ${fibonacciLevels.level236.toFixed(5)}</div>
-                    <div style="color:#ffaa66;">0.382: ${fibonacciLevels.level382.toFixed(5)}</div>
-                    <div style="color:#ff8866;">0.5: ${fibonacciLevels.level500.toFixed(5)}</div>
-                    <div style="color:#ff6688;">0.618: ${fibonacciLevels.level618.toFixed(5)}</div>
-                    <div style="color:#ff66aa;">0.786: ${fibonacciLevels.level786.toFixed(5)}</div>
-                    <div style="color:#00ffaa;">161.8%: ${fibonacciLevels.extension1618.toFixed(5)}</div>
-                </div>
-            </div>`;
-        }
+
+function updateFibonacciDisplay() {
+    const fibEl = document.getElementById('fib-levels');
+    if (fibEl && fibonacciLevels.level382 && fibonacciLevels.level382 < 1000) {
+        fibEl.innerHTML = `<div style="background:#00000066;border-radius:12px;padding:8px;margin-bottom:10px;">
+            <div style="font-size:9px;color:#ffd966;margin-bottom:4px;">📐 مستويات فيبوناتشي</div>
+            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:3px;font-size:7px;">
+                <div style="color:#ffd966;">0.236: ${fibonacciLevels.level236.toFixed(5)}</div>
+                <div style="color:#ffaa66;">0.382: ${fibonacciLevels.level382.toFixed(5)}</div>
+                <div style="color:#ff8866;">0.5: ${fibonacciLevels.level500.toFixed(5)}</div>
+                <div style="color:#ff6688;">0.618: ${fibonacciLevels.level618.toFixed(5)}</div>
+                <div style="color:#ff66aa;">0.786: ${fibonacciLevels.level786.toFixed(5)}</div>
+                <div style="color:#00ffaa;">161.8%: ${fibonacciLevels.extension1618.toFixed(5)}</div>
+            </div>
+        </div>`;
+    } else if (fibEl) {
+        fibEl.innerHTML = `<div style="background:#00000066;border-radius:12px;padding:8px;margin-bottom:10px;">
+            <div style="font-size:9px;color:#ff6666;margin-bottom:4px;">📐 جاري تحميل بيانات فيبوناتشي...</div>
+        </div>`;
     }
+}
+
+function getOptimalEntry(price, direction) {
+    // فحص صحة السعر
+    if (price > 1000 || price < 0.00001) return price;
     
-    function getOptimalEntry(price, direction) {
-        if (!SETTINGS.useSmartEntry) return price;
-        if (direction === "CALL") {
-            let demandZone = getNearestDemandZone(price);
-            if (demandZone && price > demandZone.price) return demandZone.price;
-            return fibonacciLevels.level382 || price;
-        } else {
-            let supplyZone = getNearestSupplyZone(price);
-            if (supplyZone && price < supplyZone.price) return supplyZone.price;
-            return fibonacciLevels.level618 || price;
-        }
-    }
-    
-    function getOptimalTP(entryPrice, direction) {
-        if (!SETTINGS.useFibonacciLevels) {
-            return direction === "CALL" ? entryPrice + SETTINGS.takeProfitPips/10000 : entryPrice - SETTINGS.takeProfitPips/10000;
-        }
-        if (direction === "CALL") {
-            let supplyZone = getNearestSupplyZone(entryPrice);
-            if (supplyZone && supplyZone.price > entryPrice) return supplyZone.price;
-            return fibonacciLevels.level618;
-        } else {
-            let demandZone = getNearestDemandZone(entryPrice);
-            if (demandZone && demandZone.price < entryPrice) return demandZone.price;
+    if (!SETTINGS.useSmartEntry) return price;
+    if (direction === "CALL") {
+        let demandZone = getNearestDemandZone(price);
+        if (demandZone && price > demandZone.price && demandZone.price < 1000) return demandZone.price;
+        if (fibonacciLevels.level382 && fibonacciLevels.level382 < 1000 && fibonacciLevels.level382 > 0) {
             return fibonacciLevels.level382;
         }
+        return price;
+    } else {
+        let supplyZone = getNearestSupplyZone(price);
+        if (supplyZone && price < supplyZone.price && supplyZone.price < 1000) return supplyZone.price;
+        if (fibonacciLevels.level618 && fibonacciLevels.level618 < 1000 && fibonacciLevels.level618 > 0) {
+            return fibonacciLevels.level618;
+        }
+        return price;
+    }
+}
+
+function getOptimalTP(entryPrice, direction) {
+    // فحص صحة سعر الدخول
+    if (entryPrice > 1000 || entryPrice < 0.00001) {
+        return direction === "CALL" ? entryPrice + SETTINGS.takeProfitPips/10000 : entryPrice - SETTINGS.takeProfitPips/10000;
     }
     
-    function getOptimalSL(entryPrice, direction) {
-        if (!SETTINGS.useFibonacciLevels) {
-            return direction === "CALL" ? entryPrice - SETTINGS.stopLossPips/10000 : entryPrice + SETTINGS.stopLossPips/10000;
+    if (!SETTINGS.useFibonacciLevels) {
+        return direction === "CALL" ? entryPrice + SETTINGS.takeProfitPips/10000 : entryPrice - SETTINGS.takeProfitPips/10000;
+    }
+    if (direction === "CALL") {
+        let supplyZone = getNearestSupplyZone(entryPrice);
+        if (supplyZone && supplyZone.price > entryPrice && supplyZone.price < 1000) return supplyZone.price;
+        if (fibonacciLevels.level618 && fibonacciLevels.level618 < 1000 && fibonacciLevels.level618 > entryPrice) {
+            return fibonacciLevels.level618;
         }
-        if (direction === "CALL") {
-            let demandZone = getNearestDemandZone(entryPrice);
-            if (demandZone && demandZone.price < entryPrice) return demandZone.price - 0.0002;
+        return entryPrice + SETTINGS.takeProfitPips/10000;
+    } else {
+        let demandZone = getNearestDemandZone(entryPrice);
+        if (demandZone && demandZone.price < entryPrice && demandZone.price > 0) return demandZone.price;
+        if (fibonacciLevels.level382 && fibonacciLevels.level382 < 1000 && fibonacciLevels.level382 < entryPrice) {
+            return fibonacciLevels.level382;
+        }
+        return entryPrice - SETTINGS.takeProfitPips/10000;
+    }
+}
+
+function getOptimalSL(entryPrice, direction) {
+    // فحص صحة سعر الدخول
+    if (entryPrice > 1000 || entryPrice < 0.00001) {
+        return direction === "CALL" ? entryPrice - SETTINGS.stopLossPips/10000 : entryPrice + SETTINGS.stopLossPips/10000;
+    }
+    
+    if (!SETTINGS.useFibonacciLevels) {
+        return direction === "CALL" ? entryPrice - SETTINGS.stopLossPips/10000 : entryPrice + SETTINGS.stopLossPips/10000;
+    }
+    if (direction === "CALL") {
+        let demandZone = getNearestDemandZone(entryPrice);
+        if (demandZone && demandZone.price < entryPrice && demandZone.price > 0) return demandZone.price - 0.0002;
+        if (fibonacciLevels.level236 && fibonacciLevels.level236 < 1000 && fibonacciLevels.level236 < entryPrice) {
             return fibonacciLevels.level236;
-        } else {
-            let supplyZone = getNearestSupplyZone(entryPrice);
-            if (supplyZone && supplyZone.price > entryPrice) return supplyZone.price + 0.0002;
+        }
+        return entryPrice - SETTINGS.stopLossPips/10000;
+    } else {
+        let supplyZone = getNearestSupplyZone(entryPrice);
+        if (supplyZone && supplyZone.price > entryPrice && supplyZone.price < 1000) return supplyZone.price + 0.0002;
+        if (fibonacciLevels.level786 && fibonacciLevels.level786 < 1000 && fibonacciLevels.level786 > entryPrice) {
             return fibonacciLevels.level786;
         }
+        return entryPrice + SETTINGS.stopLossPips/10000;
+    }
+}
+
+function updatePriceDisplay(price, diff) {
+    // فحص صحة السعر قبل العرض
+    if (price > 1000 || price < 0.00001) {
+        const priceEl = document.getElementById('current-price-display');
+        if (priceEl) priceEl.innerText = "جاري التحميل...";
+        return;
     }
     
-    function updatePriceDisplay(price, diff) {
-        const priceEl = document.getElementById('current-price-display');
-        if (priceEl) priceEl.innerText = price.toFixed(5);
-        const diffEl = document.getElementById('price-diff-display');
-        if (diffEl) {
-            const diffNum = parseFloat(diff);
-            diffEl.innerText = diffNum > 0 ? `▲ ${diff}` : (diffNum < 0 ? `▼ ${Math.abs(diffNum).toFixed(5)}` : `● 0`);
-            diffEl.style.color = diffNum > 0 ? "#00ffaa" : (diffNum < 0 ? "#ff4466" : "#ffd966");
-        }
+    const priceEl = document.getElementById('current-price-display');
+    if (priceEl) priceEl.innerText = price.toFixed(5);
+    const diffEl = document.getElementById('price-diff-display');
+    if (diffEl) {
+        const diffNum = parseFloat(diff);
+        diffEl.innerText = diffNum > 0 ? `▲ ${diff}` : (diffNum < 0 ? `▼ ${Math.abs(diffNum).toFixed(5)}` : `● 0`);
+        diffEl.style.color = diffNum > 0 ? "#00ffaa" : (diffNum < 0 ? "#ff4466" : "#ffd966");
     }
+}
 
     function updateTimeframeDisplay() {
         const timeframeEl = document.getElementById('st-tf-value');
