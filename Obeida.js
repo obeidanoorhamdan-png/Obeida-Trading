@@ -762,16 +762,25 @@
     strategy_DoubleBottomScalp.category = "scalp_fast";
 
     function strategy_ChannelBreak(candles) {
-        if(candles.length < 20) return null;
-        let highs = candles.map(c => c.high);
-        let upperChannel = highs.slice(-20).reduce((a,b) => a+b, 0) / 20;
-        let rsi = calculateRSI(candles, 14);
-        let curr = candles[candles.length-1];
-        if(curr.close > upperChannel && rsi < 70 && checkLiquidity()) {
-            return {signal:"CALL", confidence: 91, strength: "قوية", reason: "Channel Break - Price > Upper Channel + RSI OK", candlePattern: "INSTITUTIONAL_MARUBOZU"};
-        }
-        return null;
+    if(candles.length < 20) return null;
+    
+    // فحص صحة البيانات أولاً
+    let lastCandle = candles[candles.length-1];
+    if(lastCandle.high > 1000 || lastCandle.low < 0.00001) return null;
+    
+    let highs = candles.map(c => c.high);
+    let upperChannel = highs.slice(-20).reduce((a,b) => a+b, 0) / 20;
+    let rsi = calculateRSI(candles, 14);
+    let curr = candles[candles.length-1];
+    
+    // تأكد من أن السعر في نطاق معقول
+    if(curr.close > 10 || curr.close < 0.0001) return null;
+    
+    if(curr.close > upperChannel && rsi < 70 && rsi > 30 && checkLiquidity()) {
+        return {signal:"CALL", confidence: 91, strength: "قوية", reason: "Channel Break - Price > Upper Channel", candlePattern: "INSTITUTIONAL_MARUBOZU"};
     }
+    return null;
+}
     strategy_ChannelBreak._name = "Channel Break";
     strategy_ChannelBreak.category = "scalp_fast";
 
@@ -3015,23 +3024,28 @@
         };
         
         function updateLiveCandle(price, timestamp) {
-            if (priceHistory.length === 0) return;
-            const currentCandleTime = Math.floor(timestamp / 60000) * 60000;
-            let lastCandle = priceHistory[priceHistory.length - 1];
-            
-            if (lastCandle.time !== currentCandleTime) {
-                priceHistory.push({ time: currentCandleTime, open: price, high: price, low: price, close: price, volume: 1000 });
-                if (priceHistory.length > 500) priceHistory.shift();
-            } else {
-                lastCandle.close = price;
-                if (price > lastCandle.high) lastCandle.high = price;
-                if (price < lastCandle.low) lastCandle.low = price;
-            }
-            currentPrice = price;
-            updatePriceDisplay(currentPrice, (currentPrice - lastPrice).toFixed(5));
-            lastPrice = currentPrice;
-        }
+    // أضف هذا الفلتر لمنع الأرقام الخاطئة
+    if (price > 1000 || price < 0.00001) {
+        console.warn("⚠️ تم تجاهل سعر غير منطقي:", price);
+        return;
     }
+    
+    if (priceHistory.length === 0) return;
+    const currentCandleTime = Math.floor(timestamp / 60000) * 60000;
+    let lastCandle = priceHistory[priceHistory.length - 1];
+    
+    if (lastCandle.time !== currentCandleTime) {
+        priceHistory.push({ time: currentCandleTime, open: price, high: price, low: price, close: price, volume: 1000 });
+        if (priceHistory.length > 500) priceHistory.shift();
+    } else {
+        lastCandle.close = price;
+        if (price > lastCandle.high) lastCandle.high = price;
+        if (price < lastCandle.low) lastCandle.low = price;
+    }
+    currentPrice = price;
+    updatePriceDisplay(currentPrice, (currentPrice - lastPrice).toFixed(5));
+    lastPrice = currentPrice;
+}
 
     // =====================================================
     // ========== رادار السعر اللحظي ==========
@@ -3211,35 +3225,40 @@
     
     // ========== تحديث مستويات فيبوناتشي مع التحقق من صحة البيانات ==========
     function updateFibonacciLevels() {
-        if (!priceHistory || priceHistory.length < 10) {
-            console.warn("⚠️ انتظار تجميع بيانات العملة الجديدة لحساب فيبوناتشي...");
-            return;
-        }
-
-        let recentPrices = priceHistory.slice(-100);
-        let highs = recentPrices.map(p => p.high || p.close);
-        let lows = recentPrices.map(p => p.low || p.close);
-        
-        swingHigh = Math.max(...highs);
-        swingLow = Math.min(...lows);
-        
-        let range = swingHigh - swingLow;
-        
-        if (range === 0) return;
-
-        fibonacciLevels = {
-            level0: swingLow,
-            level236: swingLow + range * 0.236,
-            level382: swingLow + range * 0.382,
-            level500: swingLow + range * 0.5,
-            level618: swingLow + range * 0.618,
-            level786: swingLow + range * 0.786,
-            level1000: swingHigh,
-            extension127: swingHigh + range * 0.27,
-            extension1618: swingHigh + range * 0.618
-        };
-        updateFibonacciDisplay();
+    if (!priceHistory || priceHistory.length < 10) {
+        console.warn("⚠️ انتظار تجميع بيانات العملة الجديدة...");
+        return;
     }
+
+    let recentPrices = priceHistory.slice(-100);
+    let highs = recentPrices.map(p => p.high || p.close);
+    let lows = recentPrices.map(p => p.low || p.close);
+    
+    // فلتر الأرقام الخاطئة
+    let validHighs = highs.filter(h => h > 0.0001 && h < 1000);
+    let validLows = lows.filter(l => l > 0.0001 && l < 1000);
+    
+    if(validHighs.length === 0 || validLows.length === 0) return;
+    
+    swingHigh = Math.max(...validHighs);
+    swingLow = Math.min(...validLows);
+    
+    let range = swingHigh - swingLow;
+    if (range === 0 || range > 10) return; // منع النطاق الخاطئ
+
+    fibonacciLevels = {
+        level0: swingLow,
+        level236: swingLow + range * 0.236,
+        level382: swingLow + range * 0.382,
+        level500: swingLow + range * 0.5,
+        level618: swingLow + range * 0.618,
+        level786: swingLow + range * 0.786,
+        level1000: swingHigh,
+        extension127: swingHigh + range * 0.27,
+        extension1618: swingHigh + range * 0.618
+    };
+    updateFibonacciDisplay();
+}
     
     function updateFibonacciDisplay() {
         const fibEl = document.getElementById('fib-levels');
