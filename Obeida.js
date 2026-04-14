@@ -8,7 +8,7 @@
     // ========== إعدادات ==========
     const SETTINGS = {
         checkInterval: 500, // فحص كل نصف ثانية (للسكالبينج)
-        signalDuration: 5000, // مدة عرض الإشارة 3 ثواني
+        signalDuration: 3000, // مدة عرض الإشارة 3 ثواني
         minConfidence: 82, // الحد الأدنى للثقة
         takeProfitPips: 80,
         stopLossPips: 35,
@@ -712,26 +712,24 @@
     strategy_BollingerSqueeze._name = "Bollinger Squeeze";
     strategy_BollingerSqueeze.category = "scalp_fast";
 
-        function strategy_RSI(candles) {
-        if(candles.length < 14) return null;
-        let gains = 0, losses = 0;
-        for(let i = candles.length-14; i < candles.length-1; i++){
-            let diff = candles[i+1].close - candles[i].close;
-            if(diff > 0) gains += diff;
-            else losses += Math.abs(diff);
+        function strategy_RSIReverse(candles) {
+        if(candles.length < 30) return null;
+        let rsi = calculateRSI(candles, 14);
+        let closes = candles.map(c => c.close);
+        let rsiValues = [];
+        for(let i = 25; i < candles.length; i++) {
+            let slice = candles.slice(i-25, i);
+            rsiValues.push(calculateRSI(slice, 14));
         }
-        let rsi = 100 - (100 / (1 + (gains / (losses || 1))));
-        
-        // تعديل نسب الثقة لتصبح متوافقة مع الإعدادات (82% فما فوق)
-        if(rsi < 30 && checkLiquidity()) {
-            // زيادة النسبة لتكون 85% على الأقل
-            let confidence = Math.min(85 + (30 - rsi) * 0.5, 92);
-            return {signal:"CALL", confidence: confidence, strength: "قوية", reason: `RSI ${rsi.toFixed(0)} - تشبع بيعي`};
+        let lastPrice = closes[closes.length-1];
+        let prevPrice = closes[closes.length-6];
+        let lastRSI = rsiValues[rsiValues.length-1];
+        let prevRSI = rsiValues[rsiValues.length-6];
+        if(rsi < 20 && prevPrice > lastPrice && prevRSI < lastRSI && checkLiquidity()) {
+            return {signal:"CALL", confidence: 94, strength: "قوية جدا", reason: "RSI 20/80 - Oversold + Bullish Divergence", candlePattern: "PIERCING_LINE"};
         }
-        if(rsi > 70 && !isAtHistoricalPeak(currentPrice, "PUT")) {
-            // زيادة النسبة لتكون 85% على الأقل
-            let confidence = Math.min(85 + (rsi - 70) * 0.5, 92);
-            return {signal:"PUT", confidence: confidence, strength: "قوية", reason: `RSI ${rsi.toFixed(0)} - تشبع شرائي`};
+        if(rsi > 80 && prevPrice < lastPrice && prevRSI > lastRSI && checkLiquidity() && !isAtHistoricalPeak(currentPrice, "PUT")) {
+            return {signal:"PUT", confidence: 94, strength: "قوية جدا", reason: "RSI 20/80 - Overbought + Bearish Divergence", candlePattern: "DARK_CLOUD_COVER"};
         }
         return null;
     }
