@@ -81,6 +81,9 @@
     let liquidityObserver = null;
     let lastAsset = "";
     let lastTimeframe = "";
+    
+    // متغير لعرض رسالة الفريم غير المدعوم
+    let unsupportedFrameWarningDiv = null;
 
     // ========== الفريمات المدعومة ==========
     const TIMEFRAMES = {
@@ -100,212 +103,58 @@
         "1d":  { seconds: 86400, waitSeconds: 1,      name: "يومي",     category: "position",    weight: 0.93, order: 14, supported: true }
     };
 
-    // متغير لعرض رسالة تحذير الفريمات السريعة
-    let fastFrameWarningDiv = null;
-    let lastSupportedStatus = true;
-
-    // =====================================================
-    // ========== كود سحب الشارت الصحيح (ObeidaBot) ==========
-    // =====================================================
-    (function() {
-        window.ObeidaBot = {
-            history: [],
-            asset: "Checking...",
-            period: 0,
-            isReady: false
-        };
-
-        const originalSend = WebSocket.prototype.send;
-        WebSocket.prototype.send = function(data) {
-            if (data.includes("candles") || data.includes("chart_data")) {
-                window.ObeidaBot.isReady = false; 
-            }
-            return originalSend.apply(this, arguments);
-        };
-
-        const nativeProperty = Object.getOwnPropertyDescriptor(MessageEvent.prototype, "data");
-        Object.defineProperty(MessageEvent.prototype, "data", {
-            get: function() {
-                const rawData = nativeProperty.get.call(this);
-                processDeepData(rawData);
-                return rawData;
-            }
-        });
-
-        function processDeepData(raw) {
-            try {
-                const text = typeof raw === 'string' ? raw : new TextDecoder().decode(raw);
-                const jsonMatch = text.match(/\{.*\}/) || text.match(/\[.*\]/);
-                if (!jsonMatch) return;
-
-                const d = JSON.parse(jsonMatch[0]);
-
-                if (d.candles || (Array.isArray(d) && d.length > 50)) {
-                    const candles = d.candles || d;
-                    window.ObeidaBot.asset = d.asset || window.ObeidaBot.asset;
-                    window.ObeidaBot.period = parseInt(d.period) || (candles.length > 1 ? candles[1][0] - candles[0][0] : 0);
-                    
-                    // تحديث priceHistory من البيانات المستلمة
-                    if (Array.isArray(candles) && candles.length > 0) {
-                        priceHistory = candles.map(c => {
-                            return {
-                                time: c[0] * 1000,
-                                open: c[1],
-                                high: c[2],
-                                low: c[3],
-                                close: c[4],
-                                volume: c[5] || 1000
-                            };
-                        }).filter(c => c.open > 0 && c.close > 0).slice(-500);
-                        
-                        // تحديث الفريم المكتشف تلقائياً
-                        if (window.ObeidaBot.period > 0) {
-                            let detectedTF = null;
-                            for (let tf in TIMEFRAMES) {
-                                if (TIMEFRAMES[tf].seconds === window.ObeidaBot.period) {
-                                    detectedTF = tf;
-                                    break;
-                                }
-                            }
-                            if (detectedTF && detectedTF !== selectedTimeframe) {
-                                selectedTimeframe = detectedTF;
-                                currentTimeframeAuto = detectedTF;
-                                console.log(`%c 🎯 تم الرصد : ${detectedTF} `, "color: white; background: #e67e22; padding: 5px; font-weight: bold; border-radius: 4px;");
-                                updateTimeframeDisplay();
-                                
-                                // التحقق من دعم الفريم وعرض رسالة تحذير إذا كان سريعاً
-                                const isSupported = TIMEFRAMES[detectedTF]?.supported !== false;
-                                if (!isSupported && lastSupportedStatus !== false) {
-                                    showFastFrameWarning(detectedTF);
-                                } else if (isSupported && lastSupportedStatus !== true) {
-                                    hideFastFrameWarning();
-                                }
-                                lastSupportedStatus = isSupported;
-                                
-                                if (botRunning) {
-                                    const statusEl = document.getElementById('status-text');
-                                    if (statusEl) statusEl.innerHTML = `🟢 يعمل | ${getActiveStrategies().length} استراتيجية | ${detectedTF}`;
-                                }
-                            }
-                        }
-                    }
-                    window.ObeidaBot.history = candles;
-                    window.ObeidaBot.isReady = true;
-                }
-
-                if (d.data && d.data.candle) {
-                    const live = d.data.candle;
-                    const history = window.ObeidaBot.history;
-                    if (history.length > 0) {
-                        const last = history[history.length - 1];
-                        if (live[0] > last[0]) {
-                            history.push(live);
-                            // تحديث priceHistory بالشمعة الجديدة
-                            priceHistory.push({
-                                time: live[0] * 1000,
-                                open: live[1],
-                                high: live[2],
-                                low: live[3],
-                                close: live[4],
-                                volume: live[5] || 1000
-                            });
-                            if (priceHistory.length > 500) priceHistory.shift();
-                        } else {
-                            history[history.length - 1] = live;
-                            // تحديث آخر شمعة في priceHistory
-                            if (priceHistory.length > 0) {
-                                priceHistory[priceHistory.length - 1] = {
-                                    time: live[0] * 1000,
-                                    open: live[1],
-                                    high: live[2],
-                                    low: live[3],
-                                    close: live[4],
-                                    volume: live[5] || 1000
-                                };
-                            }
-                        }
-                        // تحديث السعر الحالي
-                        currentPrice = live[4];
-                        updatePriceDisplay(currentPrice, (currentPrice - lastPrice).toFixed(5));
-                        lastPrice = currentPrice;
-                    }
-                }
-            } catch (e) {
-                // تجاهل أخطاء الـ Parse اللحظية
-            }
+    // ========== عرض رسالة الفريم غير المدعوم ==========
+    function showUnsupportedFrameWarning(timeframe) {
+        // إخفاء الرسالة إذا كانت موجودة مسبقاً
+        if (unsupportedFrameWarningDiv) {
+            unsupportedFrameWarningDiv.remove();
+            unsupportedFrameWarningDiv = null;
         }
-    })();
-
-    // ========== عرض رسالة تحذير الفريمات السريعة ==========
-    function showFastFrameWarning(timeframe) {
-        if (fastFrameWarningDiv) return;
-        fastFrameWarningDiv = document.createElement('div');
-        fastFrameWarningDiv.id = 'fast-frame-warning';
-        fastFrameWarningDiv.style.cssText = `
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(0, 0, 0, 0.85);
-            backdrop-filter: blur(10px);
-            padding: 16px 24px;
-            border-radius: 20px;
-            border: 2px solid #ff4466;
-            z-index: 10000001;
-            font-family: 'Segoe UI', Tahoma, sans-serif;
-            text-align: center;
-            direction: rtl;
-            box-shadow: 0 0 30px rgba(255, 68, 102, 0.3);
+        
+        // إنشاء رسالة جديدة
+        unsupportedFrameWarningDiv = document.createElement('div');
+        unsupportedFrameWarningDiv.id = 'unsupported-frame-warning';
+        unsupportedFrameWarningDiv.style.cssText = `
+            position: fixed; top: 70px; left: 50%; transform: translateX(-50%);
+            background: rgba(231, 76, 60, 0.9); backdrop-filter: blur(8px);
+            color: #fff; padding: 10px 20px; border-radius: 30px;
+            z-index: 10000001; font-size: 13px; font-weight: bold;
+            text-align: center; white-space: nowrap; font-family: monospace;
+            border: 1px solid #ffaa66; box-shadow: 0 0 15px rgba(231,76,60,0.5);
             animation: fadeInWarning 0.3s ease-out;
         `;
-        fastFrameWarningDiv.innerHTML = `
-            <div style="color: #ff4466; font-size: 18px; font-weight: bold; margin-bottom: 8px;">⚠️ تحذير ⚠️</div>
-            <div style="color: #fff; font-size: 13px; margin-bottom: 8px;">البوت لا يدعم الفريمات الأسرع من 1 دقيقة</div>
-            <div style="color: #ffaa66; font-size: 12px; margin-bottom: 8px;">الفريم الحالي: <span style="color: #ff4466; font-weight: bold;">${timeframe}</span></div>
-            <div style="color: #88ccff; font-size: 11px;">للتحليل الصحيح، استخدم فريم 1 دقيقة أو أكثر</div>
-            <div style="color: #aaa; font-size: 10px; margin-top: 10px;">سيتم إخفاء هذه الرسالة تلقائياً عند تغيير الفريم</div>
-        `;
-        document.body.appendChild(fastFrameWarningDiv);
+        unsupportedFrameWarningDiv.innerHTML = `⚠️ تحذير: البوت لا يدعم فريم ${timeframe} للتحليل الصحيح. الرجاء استخدام فريم 1 دقيقة فما فوق ⚠️`;
         
-        // إضافة أنيميشن للظهور
-        let style = document.createElement('style');
-        style.textContent = `
-            @keyframes fadeInWarning {
-                0% { opacity: 0; transform: translate(-50%, -50%) scale(0.9); }
-                100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-            }
-        `;
-        document.head.appendChild(style);
+        // إضافة أنماط الحركة
+        let style = document.getElementById('warning-frame-style');
+        if(!style) {
+            style = document.createElement('style');
+            style.id = 'warning-frame-style';
+            style.textContent = `
+                @keyframes fadeInWarning {
+                    0% { opacity: 0; transform: translateX(-50%) translateY(-20px); }
+                    100% { opacity: 1; transform: translateX(-50%) translateY(0); }
+                }
+                @keyframes fadeOutWarning {
+                    0% { opacity: 1; transform: translateX(-50%) translateY(0); }
+                    100% { opacity: 0; transform: translateX(-50%) translateY(-20px); display: none; }
+                }
+            `;
+            document.head.appendChild(style);
+        }
+        
+        document.body.appendChild(unsupportedFrameWarningDiv);
     }
     
-    function hideFastFrameWarning() {
-        if (fastFrameWarningDiv) {
-            fastFrameWarningDiv.remove();
-            fastFrameWarningDiv = null;
-        }
-    }
-
-    // ========== تحديث عرض الفريم في الواجهة ==========
-    function updateTimeframeDisplay() {
-        const timeframeEl = document.getElementById('st-tf-value');
-        if (timeframeEl && selectedTimeframe) {
-            timeframeEl.innerText = selectedTimeframe;
-        }
-        
-        const timeframeDisplay = document.getElementById('current-timeframe-display');
-        if (timeframeDisplay && selectedTimeframe && TIMEFRAMES[selectedTimeframe]) {
-            let config = TIMEFRAMES[selectedTimeframe];
-            let categoryLabels = {
-                scalp_ultra: "⚡ سكالبينج فائق السرعة",
-                scalp_fast: "🔥 سكالبينج سريع",
-                intraday: "📈 تداول يومي",
-                swing: "🌊 تداول تأرجح",
-                position: "🏔 تداول طويل الأمد"
-            };
-            let catLabel = categoryLabels[config.category] || "";
-            let activeCount = getActiveStrategies().length;
-            let supportWarning = config.supported === false ? '<span style="color:#ff4466;"> (⚠️ غير مدعوم)</span>' : '';
-            timeframeDisplay.innerHTML = `📊 ${config.name} (${selectedTimeframe})${supportWarning} | ${catLabel}<br><span style="color:#88ccff;font-size:9px;">${activeCount} استراتيجية | انتظار ${config.waitSeconds} ثانية</span>`;
+    function hideUnsupportedFrameWarning() {
+        if (unsupportedFrameWarningDiv) {
+            unsupportedFrameWarningDiv.style.animation = 'fadeOutWarning 0.3s ease forwards';
+            setTimeout(() => {
+                if(unsupportedFrameWarningDiv && unsupportedFrameWarningDiv.remove) {
+                    unsupportedFrameWarningDiv.remove();
+                    unsupportedFrameWarningDiv = null;
+                }
+            }, 300);
         }
     }
 
@@ -3022,12 +2871,255 @@ strategy_ChannelBreak.category = "scalp_fast";
     }
 
     // =====================================================
-    // ========== كشف العملة (xfLZW) مع حل مشكلة تغيير العملة ==========
+    // ========== كود سحب الشارت الجديد (ObeidaBot) ==========
     // =====================================================
+    
+    // ربط المتغيرات بنفس الأسماء الموجودة في الملف لضمان عمل الاستراتيجيات
+    window.ObeidaBot = {
+        history: [],
+        asset: "🔄 جاري الكشف...",
+        period: 0,
+        isReady: false
+    };
+
+    // 1. اختطاف قنوات البيانات (WebSocket Hook)
+    const originalSend = WebSocket.prototype.send;
+    WebSocket.prototype.send = function(data) {
+        if (data.includes("candles") || data.includes("chart_data")) {
+            window.ObeidaBot.isReady = false; 
+        }
+        return originalSend.apply(this, arguments);
+    };
+
+    const nativeProperty = Object.getOwnPropertyDescriptor(MessageEvent.prototype, "data");
+    Object.defineProperty(MessageEvent.prototype, "data", {
+        get: function() {
+            const rawData = nativeProperty.get.call(this);
+            processDeepData(rawData);
+            return rawData;
+        }
+    });
+
+    // 2. معالجة البيانات وتحويلها لتنسيق OHLC المطلوب للاستراتيجيات
+    function processDeepData(raw) {
+        try {
+            const text = typeof raw === 'string' ? raw : new TextDecoder().decode(raw);
+            const jsonMatch = text.match(/\{.*\}/) || text.match(/\[.*\]/);
+            if (!jsonMatch) return;
+
+            const d = JSON.parse(jsonMatch[0]);
+
+            // أ- سحب التاريخ (History) - المتطلب الأساسي للفيبوناتشي والعرض والطلب
+            if (d.candles || (Array.isArray(d) && d.length > 50)) {
+                const rawCandles = d.candles || d;
+                window.ObeidaBot.asset = d.asset || window.ObeidaBot.asset;
+                
+                // حساب الفريم تلقائياً
+                window.ObeidaBot.period = parseInt(d.period) || 
+                    (rawCandles.length > 1 ? rawCandles[1][0] - rawCandles[0][0] : 0);
+                
+                // تحويل البيانات لتنسيق {time, open, high, low, close, volume}
+                const newHistory = rawCandles.map(c => ({
+                    time: (c[0] || c.t || c.time) * 1000, // تحويل إلى milliseconds
+                    open: c[1] || c.o || c.open,
+                    high: c[2] || c.h || c.high,
+                    low: c[3] || c.l || c.low,
+                    close: c[4] || c.c || c.close,
+                    volume: c[5] || c.v || c.volume || 1000
+                }));
+                
+                // تحديث priceHistory المستخدم في الاستراتيجيات
+                if (newHistory.length > 0) {
+                    priceHistory = newHistory;
+                    window.ObeidaBot.history = newHistory;
+                    window.ObeidaBot.isReady = true;
+                    
+                    // تحديث الفريم المحدد
+                    const periodSeconds = window.ObeidaBot.period;
+                    let detectedTF = null;
+                    for (let tf in TIMEFRAMES) {
+                        if (TIMEFRAMES[tf].seconds === periodSeconds) {
+                            detectedTF = tf;
+                            break;
+                        }
+                    }
+                    
+                    if (detectedTF) {
+                        // التحقق من دعم الفريم
+                        const isSupported = TIMEFRAMES[detectedTF].supported !== false;
+                        if (!isSupported) {
+                            showUnsupportedFrameWarning(detectedTF);
+                            // إيقاف البوت إذا كان يعمل على فريم غير مدعوم
+                            if (botRunning) {
+                                stopAnalysis();
+                                showNotification(`تم إيقاف البوت: فريم ${detectedTF} غير مدعوم. الرجاء تغيير الفريم إلى 1 دقيقة فما فوق.`, "#ff4466");
+                            }
+                        } else {
+                            hideUnsupportedFrameWarning();
+                            selectedTimeframe = detectedTF;
+                            currentTimeframeAuto = detectedTF;
+                            updateTimeframeDisplay();
+                            
+                            // إذا كان البوت متوقف وكان الفريم مدعوماً، يمكن تشغيله يدوياً
+                            if (!botRunning) {
+                                const statusEl = document.getElementById('status-text');
+                                if (statusEl) statusEl.innerHTML = `🔴 التداول متوقف | الفريم المدعوم: ${detectedTF}`;
+                            }
+                        }
+                    }
+                    
+                    // تحديث فيبوناتشي ومناطق الطلب والعرض
+                    updateFibonacciLevels();
+                    detectSupplyDemandZones();
+                    
+                    console.log(`%c 🛰️ OBEIDA DATA ENGINE ACTIVE `, "background: #026fd3; color: white; padding: 3px; font-weight: bold;");
+                    console.log(`%c العملة: ${window.ObeidaBot.asset} | الفريم: ${periodSeconds}s `, "color: #3498db; font-weight: bold;");
+                }
+            }
+
+            // ب- المزامنة اللحظية (Live Update) - لضمان دخول الصفقة في الوقت المناسب
+            if (d.data && d.data.candle) {
+                const live = d.data.candle;
+                const h = priceHistory;
+                
+                if (h.length > 0) {
+                    const liveTime = (live[0] || live.t) * 1000;
+                    
+                    if (liveTime > h[h.length - 1].time) {
+                        // شمعة جديدة
+                        const newCandle = {
+                            time: liveTime,
+                            open: live[1] || live.o || live.open,
+                            high: live[2] || live.h || live.high,
+                            low: live[3] || live.l || live.low,
+                            close: live[4] || live.c || live.close,
+                            volume: live[5] || live.v || live.volume || 1000
+                        };
+                        h.push(newCandle);
+                        if(h.length > 500) h.shift();
+                    } else {
+                        // تحديث الشمعة الحالية
+                        h[h.length - 1].high = Math.max(h[h.length - 1].high, live[2] || live.h || live.high);
+                        h[h.length - 1].low = Math.min(h[h.length - 1].low, live[3] || live.l || live.low);
+                        h[h.length - 1].close = live[4] || live.c || live.close;
+                    }
+                    
+                    // تحديث السعر الحالي
+                    currentPrice = h[h.length - 1].close;
+                    updatePriceDisplay(currentPrice, (currentPrice - lastPrice).toFixed(5));
+                    lastPrice = currentPrice;
+                }
+            }
+        } catch (e) {}
+    }
+
+    // ========== كشف الفريم مع دعم الفريمات المدعومة ==========
+    function initTimeframeDetectionV2() {
+        let lastTF = "";
+        
+        function updateTimeframeUI() {
+            const timeframeEl = document.getElementById('st-tf-value');
+            if (timeframeEl && selectedTimeframe) {
+                timeframeEl.innerText = selectedTimeframe;
+                console.log(`%c 📺 بالفريم: ${selectedTimeframe}`, "color: #00ffaa; font-size: 10px;");
+            }
+            
+            const timeframeDisplay = document.getElementById('current-timeframe-display');
+            if (timeframeDisplay && selectedTimeframe && TIMEFRAMES[selectedTimeframe]) {
+                let config = TIMEFRAMES[selectedTimeframe];
+                let categoryLabels = {
+                    scalp_ultra: "⚡ سكالبينج فائق السرعة",
+                    scalp_fast: "🔥 سكالبينج سريع",
+                    intraday: "📈 تداول يومي",
+                    swing: "🌊 تداول تأرجح",
+                    position: "🏔 تداول طويل الأمد"
+                };
+                let catLabel = categoryLabels[config.category] || "";
+                let activeCount = getActiveStrategies().length;
+                let supportText = config.supported !== false ? "" : " (⚠️ غير مدعوم)";
+                timeframeDisplay.innerHTML = `📊 ${config.name} (${selectedTimeframe})${supportText} | ${catLabel}<br><span style="color:#88ccff;font-size:9px;">${activeCount} استراتيجية | انتظار ${config.waitSeconds} ثانية</span>`;
+            }
+        }
+        
+        function detectTimeframe() {
+            // استخدام الفريم من ObeidaBot إذا كان متاحاً
+            if (window.ObeidaBot && window.ObeidaBot.period > 0) {
+                const periodSeconds = window.ObeidaBot.period;
+                let detectedTF = null;
+                for (let tf in TIMEFRAMES) {
+                    if (TIMEFRAMES[tf].seconds === periodSeconds) {
+                        detectedTF = tf;
+                        break;
+                    }
+                }
+                
+                if (detectedTF && detectedTF !== lastTF) {
+                    lastTF = detectedTF;
+                    const isSupported = TIMEFRAMES[detectedTF].supported !== false;
+                    
+                    if (!isSupported) {
+                        showUnsupportedFrameWarning(detectedTF);
+                        if (botRunning) {
+                            stopAnalysis();
+                            showNotification(`تم إيقاف البوت: فريم ${detectedTF} غير مدعوم. الرجاء تغيير الفريم إلى 1 دقيقة فما فوق.`, "#ff4466");
+                        }
+                    } else {
+                        hideUnsupportedFrameWarning();
+                        selectedTimeframe = detectedTF;
+                        currentTimeframeAuto = detectedTF;
+                        console.log(`%c 🎯 تم الرصد : ${detectedTF} (مدعوم)`, "color: white; background: #27ae60; padding: 5px; font-weight: bold; border-radius: 4px;");
+                        updateTimeframeUI();
+                        if (botRunning) {
+                            const statusEl = document.getElementById('status-text');
+                            if (statusEl) statusEl.innerHTML = `🟢 يعمل | ${getActiveStrategies().length} استراتيجية | ${detectedTF}`;
+                        }
+                    }
+                }
+            } else {
+                // كشف الفريم من العنصر الموجود في الصفحة
+                const target = document.querySelector('.Wy5Or');
+                if (target) {
+                    const rawText = target.innerText.trim();
+                    const timeMatch = rawText.match(/[0-9]{1,2}[smhd]/);
+                    if (timeMatch) {
+                        let currentTF = timeMatch[0].toLowerCase();
+                        if (currentTF !== lastTF) {
+                            lastTF = currentTF;
+                            const isSupported = TIMEFRAMES[currentTF]?.supported !== false;
+                            
+                            if (!isSupported) {
+                                showUnsupportedFrameWarning(currentTF);
+                                if (botRunning) {
+                                    stopAnalysis();
+                                    showNotification(`تم إيقاف البوت: فريم ${currentTF} غير مدعوم. الرجاء تغيير الفريم إلى 1 دقيقة فما فوق.`, "#ff4466");
+                                }
+                            } else if (TIMEFRAMES[currentTF]) {
+                                hideUnsupportedFrameWarning();
+                                selectedTimeframe = currentTF;
+                                currentTimeframeAuto = currentTF;
+                                console.log(`%c 🎯 تم الرصد : ${currentTF} (مدعوم)`, "color: white; background: #27ae60; padding: 5px; font-weight: bold; border-radius: 4px;");
+                                updateTimeframeUI();
+                                if (botRunning) {
+                                    const statusEl = document.getElementById('status-text');
+                                    if (statusEl) statusEl.innerHTML = `🟢 يعمل | ${getActiveStrategies().length} استراتيجية | ${currentTF}`;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        detectTimeframe();
+        setInterval(detectTimeframe, 500);
+        document.addEventListener('click', () => setTimeout(detectTimeframe, 200));
+    }
+
+    // ========== كشف العملة (xfLZW) مع حل مشكلة تغيير العملة ==========
     function initAssetDetectionV2() {
         function detectAsset() {
-            // استخدام البيانات من ObeidaBot
-            if (window.ObeidaBot && window.ObeidaBot.asset && window.ObeidaBot.asset !== "Checking...") {
+            // استخدام الاسم من ObeidaBot إذا كان متاحاً
+            if (window.ObeidaBot && window.ObeidaBot.asset && window.ObeidaBot.asset !== "🔄 جاري الكشف...") {
                 let currentAssetName = window.ObeidaBot.asset;
                 if (currentAssetName && currentAssetName !== lastDetectedAsset) {
                     console.log(`🔄 تم اكتشاف تغيير العملة إلى: ${currentAssetName} | جاري إعادة ضبط المستويات...`);
@@ -3051,8 +3143,48 @@ strategy_ChannelBreak.category = "scalp_fast";
                     
                     // إعادة تشغيل الحسابات بعد ثانية لضمان تحميل بيانات الشارت الجديدة
                     setTimeout(() => {
-                        detectSupplyDemandZones();
-                        updateFibonacciLevels();
+                        if (priceHistory.length > 0) {
+                            detectSupplyDemandZones();
+                            updateFibonacciLevels();
+                        }
+                        if(botRunning) {
+                            showNotification(`تم التحديث: ${currentAssetName}`, "#00ffaa");
+                        }
+                    }, 1500);
+                }
+                return;
+            }
+            
+            // كشف العملة من العنصر الموجود في الصفحة
+            const assetEl = document.querySelector('.xfLZW');
+            if (assetEl) {
+                let currentAssetName = assetEl.innerText.trim().split('\n')[0];
+                if (currentAssetName && currentAssetName !== lastDetectedAsset) {
+                    console.log(`🔄 تم اكتشاف تغيير العملة إلى: ${currentAssetName} | جاري إعادة ضبط المستويات...`);
+                    
+                    // تنظيف الذاكرة القديمة
+                    priceHistory = [];
+                    demandZones = [];
+                    supplyZones = [];
+                    orderBlocks = [];
+                    fibonacciLevels = {};
+                    swingHigh = 0;
+                    swingLow = 0;
+                    
+                    // تحديث اسم العملة الحالي
+                    lastDetectedAsset = currentAssetName;
+                    currentAsset = currentAssetName;
+                    
+                    console.log(`%c 💎 العملة الحالية: ${currentAssetName} `, "color: white; background: #27ae60; padding: 5px; font-weight: bold; border-radius: 4px;");
+                    const assetDisplay = document.getElementById('current-asset-display');
+                    if (assetDisplay) assetDisplay.innerText = currentAssetName;
+                    
+                    // إعادة تشغيل الحسابات بعد ثانية لضمان تحميل بيانات الشارت الجديدة
+                    setTimeout(() => {
+                        if (priceHistory.length > 0) {
+                            detectSupplyDemandZones();
+                            updateFibonacciLevels();
+                        }
                         if(botRunning) {
                             showNotification(`تم التحديث: ${currentAssetName}`, "#00ffaa");
                         }
@@ -3066,9 +3198,7 @@ strategy_ChannelBreak.category = "scalp_fast";
         document.addEventListener('click', () => setTimeout(detectAsset, 300));
     }
 
-    // =====================================================
     // ========== كشف السيولة (gDH53) ==========
-    // =====================================================
     function initLiquidityDetection() {
         let lastLiq = "";
         
@@ -3100,9 +3230,7 @@ strategy_ChannelBreak.category = "scalp_fast";
         document.addEventListener('click', () => setTimeout(detectLiquidity, 300));
     }
 
-    // =====================================================
     // ========== كشف الحساب ==========
-    // =====================================================
     function initAccountDetectionV2() {
         let lastAccType = "";
         
@@ -3130,66 +3258,210 @@ strategy_ChannelBreak.category = "scalp_fast";
         document.addEventListener('click', () => setTimeout(detectAccount, 500));
     }
 
-    // =====================================================
-    // ========== سحب 500 شمعة من الشارت ==========
-    // =====================================================
-    function initChartDataCapture() {
-        // تم دمج هذه الوظيفة في كود ObeidaBot أعلاه
-        // يتم تحديث priceHistory تلقائياً من خلال processDeepData
-    }
-
-    // =====================================================
-    // ========== رادار السعر اللحظي ==========
-    // =====================================================
-    function initPriceRadarV2() {
-        // يتم تحديث السعر تلقائياً من خلال ObeidaBot
-        let lastPriceValue = 0;
-        
-        setInterval(() => {
-            if (currentPrice !== lastPriceValue && currentPrice > 0) {
-                let diff = lastPriceValue === 0 ? 0 : (currentPrice - lastPriceValue).toFixed(5);
-                let color = diff > 0 ? "#27ae60" : (diff < 0 ? "#e74c3c" : "#2c3e50");
-                updatePriceDisplay(currentPrice, diff);
-                lastPriceValue = currentPrice;
-            }
-        }, 100);
-    }
-
-    // =====================================================
-    // ========== تنفيذ أوامر الشراء/البيع ==========
-    // =====================================================
-    function executeTradeOrder(direction) {
-        try {
-            if (direction === "CALL") {
-                const callButton = document.querySelector("main button.NojdU");
-                if (callButton) {
-                    callButton.click();
-                    console.log("%c ✅ تم تنفيذ أمر شراء (CALL) بنجاح", "color: #00ff00; font-weight: bold;");
-                    return true;
-                } else {
-                    console.warn("%c ⚠️ لم يتم العثور على زر CALL (.NojdU)", "color: #ffaa00;");
-                    return false;
-                }
-            } else if (direction === "PUT") {
-                const putButton = document.querySelector("button.oBTfq");
-                if (putButton) {
-                    putButton.click();
-                    console.log("%c ✅ تم تنفيذ أمر بيع (PUT) بنجاح", "color: #00ff00; font-weight: bold;");
-                    return true;
-                } else {
-                    console.warn("%c ⚠️ لم يتم العثور على زر PUT (.oBTfq)", "color: #ffaa00;");
-                    return false;
-                }
-            }
-        } catch(e) {
-            console.error("%c ❌ خطأ في تنفيذ الأمر: " + e.message, "color: #ff0000;");
+    // ========== تحديث مستويات فيبوناتشي مع التحقق من صحة البيانات ==========
+    function updateFibonacciLevels() {
+        if (!priceHistory || priceHistory.length < 10) {
+            console.warn("⚠️ انتظار تجميع بيانات العملة الجديدة لحساب فيبوناتشي...");
+            return;
         }
-        return false;
+
+        let recentPrices = priceHistory.slice(-100);
+        let highs = recentPrices.map(p => p.high || p.close);
+        let lows = recentPrices.map(p => p.low || p.close);
+        
+        // ========== فلتر الأرقام الخاطئة ==========
+        let validHighs = highs.filter(h => h > 0.0001 && h < 1000);
+        let validLows = lows.filter(l => l > 0.0001 && l < 1000);
+        
+        if (validHighs.length === 0 || validLows.length === 0) {
+            console.warn("⚠️ لا توجد بيانات صالحة لحساب فيبوناتشي");
+            return;
+        }
+        
+        swingHigh = Math.max(...validHighs);
+        swingLow = Math.min(...validLows);
+        
+        let range = swingHigh - swingLow;
+        
+        // منع النطاق الخاطئ (أكبر من 10 أو صفر)
+        if (range === 0 || range > 10) {
+            console.warn("⚠️ نطاق فيبوناتشي غير طبيعي:", range);
+            return;
+        }
+
+        fibonacciLevels = {
+            level0: swingLow,
+            level236: swingLow + range * 0.236,
+            level382: swingLow + range * 0.382,
+            level500: swingLow + range * 0.5,
+            level618: swingLow + range * 0.618,
+            level786: swingLow + range * 0.786,
+            level1000: swingHigh,
+            extension127: swingHigh + range * 0.27,
+            extension1618: swingHigh + range * 0.618
+        };
+        updateFibonacciDisplay();
     }
 
-    // =====================================================
+    function updateFibonacciDisplay() {
+        const fibEl = document.getElementById('fib-levels');
+        if (fibEl && fibonacciLevels.level382 && fibonacciLevels.level382 < 1000) {
+            fibEl.innerHTML = `<div style="background:#00000066;border-radius:12px;padding:8px;margin-bottom:10px;">
+                <div style="font-size:9px;color:#ffd966;margin-bottom:4px;">📐 مستويات فيبوناتشي</div>
+                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:3px;font-size:7px;">
+                    <div style="color:#ffd966;">0.236: ${fibonacciLevels.level236.toFixed(5)}</div>
+                    <div style="color:#ffaa66;">0.382: ${fibonacciLevels.level382.toFixed(5)}</div>
+                    <div style="color:#ff8866;">0.5: ${fibonacciLevels.level500.toFixed(5)}</div>
+                    <div style="color:#ff6688;">0.618: ${fibonacciLevels.level618.toFixed(5)}</div>
+                    <div style="color:#ff66aa;">0.786: ${fibonacciLevels.level786.toFixed(5)}</div>
+                    <div style="color:#00ffaa;">161.8%: ${fibonacciLevels.extension1618.toFixed(5)}</div>
+                </div>
+            </div>`;
+        } else if (fibEl) {
+            fibEl.innerHTML = `<div style="background:#00000066;border-radius:12px;padding:8px;margin-bottom:10px;">
+                <div style="font-size:9px;color:#ff6666;margin-bottom:4px;">📐 جاري تحميل بيانات فيبوناتشي...</div>
+            </div>`;
+        }
+    }
+
+    function getOptimalEntry(price, direction) {
+        // فحص صحة السعر
+        if (price > 1000 || price < 0.00001) return price;
+        
+        if (!SETTINGS.useSmartEntry) return price;
+        if (direction === "CALL") {
+            let demandZone = getNearestDemandZone(price);
+            if (demandZone && price > demandZone.price && demandZone.price < 1000) return demandZone.price;
+            if (fibonacciLevels.level382 && fibonacciLevels.level382 < 1000 && fibonacciLevels.level382 > 0) {
+                return fibonacciLevels.level382;
+            }
+            return price;
+        } else {
+            let supplyZone = getNearestSupplyZone(price);
+            if (supplyZone && price < supplyZone.price && supplyZone.price < 1000) return supplyZone.price;
+            if (fibonacciLevels.level618 && fibonacciLevels.level618 < 1000 && fibonacciLevels.level618 > 0) {
+                return fibonacciLevels.level618;
+            }
+            return price;
+        }
+    }
+
+    function getOptimalTP(entryPrice, direction) {
+        // فحص صحة سعر الدخول
+        if (entryPrice > 1000 || entryPrice < 0.00001) {
+            return direction === "CALL" ? entryPrice + SETTINGS.takeProfitPips/10000 : entryPrice - SETTINGS.takeProfitPips/10000;
+        }
+        
+        if (!SETTINGS.useFibonacciLevels) {
+            return direction === "CALL" ? entryPrice + SETTINGS.takeProfitPips/10000 : entryPrice - SETTINGS.takeProfitPips/10000;
+        }
+        if (direction === "CALL") {
+            let supplyZone = getNearestSupplyZone(entryPrice);
+            if (supplyZone && supplyZone.price > entryPrice && supplyZone.price < 1000) return supplyZone.price;
+            if (fibonacciLevels.level618 && fibonacciLevels.level618 < 1000 && fibonacciLevels.level618 > entryPrice) {
+                return fibonacciLevels.level618;
+            }
+            return entryPrice + SETTINGS.takeProfitPips/10000;
+        } else {
+            let demandZone = getNearestDemandZone(entryPrice);
+            if (demandZone && demandZone.price < entryPrice && demandZone.price > 0) return demandZone.price;
+            if (fibonacciLevels.level382 && fibonacciLevels.level382 < 1000 && fibonacciLevels.level382 < entryPrice) {
+                return fibonacciLevels.level382;
+            }
+            return entryPrice - SETTINGS.takeProfitPips/10000;
+        }
+    }
+
+    function getOptimalSL(entryPrice, direction) {
+        // فحص صحة سعر الدخول
+        if (entryPrice > 1000 || entryPrice < 0.00001) {
+            return direction === "CALL" ? entryPrice - SETTINGS.stopLossPips/10000 : entryPrice + SETTINGS.stopLossPips/10000;
+        }
+        
+        if (!SETTINGS.useFibonacciLevels) {
+            return direction === "CALL" ? entryPrice - SETTINGS.stopLossPips/10000 : entryPrice + SETTINGS.stopLossPips/10000;
+        }
+        if (direction === "CALL") {
+            let demandZone = getNearestDemandZone(entryPrice);
+            if (demandZone && demandZone.price < entryPrice && demandZone.price > 0) return demandZone.price - 0.0002;
+            if (fibonacciLevels.level236 && fibonacciLevels.level236 < 1000 && fibonacciLevels.level236 < entryPrice) {
+                return fibonacciLevels.level236;
+            }
+            return entryPrice - SETTINGS.stopLossPips/10000;
+        } else {
+            let supplyZone = getNearestSupplyZone(entryPrice);
+            if (supplyZone && supplyZone.price > entryPrice && supplyZone.price < 1000) return supplyZone.price + 0.0002;
+            if (fibonacciLevels.level786 && fibonacciLevels.level786 < 1000 && fibonacciLevels.level786 > entryPrice) {
+                return fibonacciLevels.level786;
+            }
+            return entryPrice + SETTINGS.stopLossPips/10000;
+        }
+    }
+
+    function updatePriceDisplay(price, diff) {
+        // فحص صحة السعر قبل العرض
+        if (price > 1000 || price < 0.00001) {
+            const priceEl = document.getElementById('current-price-display');
+            if (priceEl) priceEl.innerText = "جاري التحميل...";
+            return;
+        }
+        
+        const priceEl = document.getElementById('current-price-display');
+        if (priceEl) priceEl.innerText = price.toFixed(5);
+        const diffEl = document.getElementById('price-diff-display');
+        if (diffEl) {
+            const diffNum = parseFloat(diff);
+            diffEl.innerText = diffNum > 0 ? `▲ ${diff}` : (diffNum < 0 ? `▼ ${Math.abs(diffNum).toFixed(5)}` : `● 0`);
+            diffEl.style.color = diffNum > 0 ? "#00ffaa" : (diffNum < 0 ? "#ff4466" : "#ffd966");
+        }
+    }
+
+    function updateTimeframeDisplay() {
+        const timeframeEl = document.getElementById('st-tf-value');
+        if (timeframeEl && selectedTimeframe) {
+            timeframeEl.innerText = selectedTimeframe;
+        }
+        
+        const timeframeDisplay = document.getElementById('current-timeframe-display');
+        if (timeframeDisplay && selectedTimeframe && TIMEFRAMES[selectedTimeframe]) {
+            let config = TIMEFRAMES[selectedTimeframe];
+            let categoryLabels = {
+                scalp_ultra: "⚡ سكالبينج فائق السرعة",
+                scalp_fast: "🔥 سكالبينج سريع",
+                intraday: "📈 تداول يومي",
+                swing: "🌊 تداول تأرجح",
+                position: "🏔 تداول طويل الأمد"
+            };
+            let catLabel = categoryLabels[config.category] || "";
+            let activeCount = getActiveStrategies().length;
+            let supportText = config.supported !== false ? "" : " (⚠️ غير مدعوم)";
+            timeframeDisplay.innerHTML = `📊 ${config.name} (${selectedTimeframe})${supportText} | ${catLabel}<br><span style="color:#88ccff;font-size:9px;">${activeCount} استراتيجية | انتظار ${config.waitSeconds} ثانية</span>`;
+        }
+    }
+
+    function resetAnalysis() {
+        if (botRunning) {
+            priceHistory = [];
+            demandZones = [];
+            supplyZones = [];
+            orderBlocks = [];
+            console.log("%c ✅ تم إعادة تعيين التحليل ", "color: #00ffaa; font-weight: bold;");
+        }
+    }
+
+    function getChartData() {
+        if (priceHistory.length === 0) return [];
+        return priceHistory.map(c => ({
+            time: c.time,
+            open: c.open,
+            high: c.high,
+            low: c.low,
+            close: c.close,
+            volume: c.volume || 1000
+        }));
+    }
+
     // ========== كشف مناطق الطلب والعرض ==========
-    // =====================================================
     function detectSupplyDemandZones() {
         if (priceHistory.length < 50) return;
         
@@ -3271,186 +3543,6 @@ strategy_ChannelBreak.category = "scalp_fast";
             if (dist < minDist && price < zone.price) { minDist = dist; nearest = zone; }
         }
         return nearest;
-    }
-    
-    // ========== تحديث مستويات فيبوناتشي مع التحقق من صحة البيانات ==========
-    function updateFibonacciLevels() {
-        if (!priceHistory || priceHistory.length < 10) {
-            console.warn("⚠️ انتظار تجميع بيانات العملة الجديدة لحساب فيبوناتشي...");
-            return;
-        }
-    
-        let recentPrices = priceHistory.slice(-100);
-        let highs = recentPrices.map(p => p.high || p.close);
-        let lows = recentPrices.map(p => p.low || p.close);
-        
-        // ========== فلتر الأرقام الخاطئة ==========
-        let validHighs = highs.filter(h => h > 0.0001 && h < 1000);
-        let validLows = lows.filter(l => l > 0.0001 && l < 1000);
-        
-        if (validHighs.length === 0 || validLows.length === 0) {
-            console.warn("⚠️ لا توجد بيانات صالحة لحساب فيبوناتشي");
-            return;
-        }
-        
-        swingHigh = Math.max(...validHighs);
-        swingLow = Math.min(...validLows);
-        
-        let range = swingHigh - swingLow;
-        
-        // منع النطاق الخاطئ (أكبر من 10 أو صفر)
-        if (range === 0 || range > 10) {
-            console.warn("⚠️ نطاق فيبوناتشي غير طبيعي:", range);
-            return;
-        }
-    
-        fibonacciLevels = {
-            level0: swingLow,
-            level236: swingLow + range * 0.236,
-            level382: swingLow + range * 0.382,
-            level500: swingLow + range * 0.5,
-            level618: swingLow + range * 0.618,
-            level786: swingLow + range * 0.786,
-            level1000: swingHigh,
-            extension127: swingHigh + range * 0.27,
-            extension1618: swingHigh + range * 0.618
-        };
-        updateFibonacciDisplay();
-    }
-    
-    function updateFibonacciDisplay() {
-        const fibEl = document.getElementById('fib-levels');
-        if (fibEl && fibonacciLevels.level382 && fibonacciLevels.level382 < 1000) {
-            fibEl.innerHTML = `<div style="background:#00000066;border-radius:12px;padding:8px;margin-bottom:10px;">
-                <div style="font-size:9px;color:#ffd966;margin-bottom:4px;">📐 مستويات فيبوناتشي</div>
-                <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:3px;font-size:7px;">
-                    <div style="color:#ffd966;">0.236: ${fibonacciLevels.level236.toFixed(5)}</div>
-                    <div style="color:#ffaa66;">0.382: ${fibonacciLevels.level382.toFixed(5)}</div>
-                    <div style="color:#ff8866;">0.5: ${fibonacciLevels.level500.toFixed(5)}</div>
-                    <div style="color:#ff6688;">0.618: ${fibonacciLevels.level618.toFixed(5)}</div>
-                    <div style="color:#ff66aa;">0.786: ${fibonacciLevels.level786.toFixed(5)}</div>
-                    <div style="color:#00ffaa;">161.8%: ${fibonacciLevels.extension1618.toFixed(5)}</div>
-                </div>
-            </div>`;
-        } else if (fibEl) {
-            fibEl.innerHTML = `<div style="background:#00000066;border-radius:12px;padding:8px;margin-bottom:10px;">
-                <div style="font-size:9px;color:#ff6666;margin-bottom:4px;">📐 جاري تحميل بيانات فيبوناتشي...</div>
-            </div>`;
-        }
-    }
-    
-    function getOptimalEntry(price, direction) {
-        // فحص صحة السعر
-        if (price > 1000 || price < 0.00001) return price;
-        
-        if (!SETTINGS.useSmartEntry) return price;
-        if (direction === "CALL") {
-            let demandZone = getNearestDemandZone(price);
-            if (demandZone && price > demandZone.price && demandZone.price < 1000) return demandZone.price;
-            if (fibonacciLevels.level382 && fibonacciLevels.level382 < 1000 && fibonacciLevels.level382 > 0) {
-                return fibonacciLevels.level382;
-            }
-            return price;
-        } else {
-            let supplyZone = getNearestSupplyZone(price);
-            if (supplyZone && price < supplyZone.price && supplyZone.price < 1000) return supplyZone.price;
-            if (fibonacciLevels.level618 && fibonacciLevels.level618 < 1000 && fibonacciLevels.level618 > 0) {
-                return fibonacciLevels.level618;
-            }
-            return price;
-        }
-    }
-    
-    function getOptimalTP(entryPrice, direction) {
-        // فحص صحة سعر الدخول
-        if (entryPrice > 1000 || entryPrice < 0.00001) {
-            return direction === "CALL" ? entryPrice + SETTINGS.takeProfitPips/10000 : entryPrice - SETTINGS.takeProfitPips/10000;
-        }
-        
-        if (!SETTINGS.useFibonacciLevels) {
-            return direction === "CALL" ? entryPrice + SETTINGS.takeProfitPips/10000 : entryPrice - SETTINGS.takeProfitPips/10000;
-        }
-        if (direction === "CALL") {
-            let supplyZone = getNearestSupplyZone(entryPrice);
-            if (supplyZone && supplyZone.price > entryPrice && supplyZone.price < 1000) return supplyZone.price;
-            if (fibonacciLevels.level618 && fibonacciLevels.level618 < 1000 && fibonacciLevels.level618 > entryPrice) {
-                return fibonacciLevels.level618;
-            }
-            return entryPrice + SETTINGS.takeProfitPips/10000;
-        } else {
-            let demandZone = getNearestDemandZone(entryPrice);
-            if (demandZone && demandZone.price < entryPrice && demandZone.price > 0) return demandZone.price;
-            if (fibonacciLevels.level382 && fibonacciLevels.level382 < 1000 && fibonacciLevels.level382 < entryPrice) {
-                return fibonacciLevels.level382;
-            }
-            return entryPrice - SETTINGS.takeProfitPips/10000;
-        }
-    }
-    
-    function getOptimalSL(entryPrice, direction) {
-        // فحص صحة سعر الدخول
-        if (entryPrice > 1000 || entryPrice < 0.00001) {
-            return direction === "CALL" ? entryPrice - SETTINGS.stopLossPips/10000 : entryPrice + SETTINGS.stopLossPips/10000;
-        }
-        
-        if (!SETTINGS.useFibonacciLevels) {
-            return direction === "CALL" ? entryPrice - SETTINGS.stopLossPips/10000 : entryPrice + SETTINGS.stopLossPips/10000;
-        }
-        if (direction === "CALL") {
-            let demandZone = getNearestDemandZone(entryPrice);
-            if (demandZone && demandZone.price < entryPrice && demandZone.price > 0) return demandZone.price - 0.0002;
-            if (fibonacciLevels.level236 && fibonacciLevels.level236 < 1000 && fibonacciLevels.level236 < entryPrice) {
-                return fibonacciLevels.level236;
-            }
-            return entryPrice - SETTINGS.stopLossPips/10000;
-        } else {
-            let supplyZone = getNearestSupplyZone(entryPrice);
-            if (supplyZone && supplyZone.price > entryPrice && supplyZone.price < 1000) return supplyZone.price + 0.0002;
-            if (fibonacciLevels.level786 && fibonacciLevels.level786 < 1000 && fibonacciLevels.level786 > entryPrice) {
-                return fibonacciLevels.level786;
-            }
-            return entryPrice + SETTINGS.stopLossPips/10000;
-        }
-    }
-    
-    function updatePriceDisplay(price, diff) {
-        // فحص صحة السعر قبل العرض
-        if (price > 1000 || price < 0.00001) {
-            const priceEl = document.getElementById('current-price-display');
-            if (priceEl) priceEl.innerText = "جاري التحميل...";
-            return;
-        }
-        
-        const priceEl = document.getElementById('current-price-display');
-        if (priceEl) priceEl.innerText = price.toFixed(5);
-        const diffEl = document.getElementById('price-diff-display');
-        if (diffEl) {
-            const diffNum = parseFloat(diff);
-            diffEl.innerText = diffNum > 0 ? `▲ ${diff}` : (diffNum < 0 ? `▼ ${Math.abs(diffNum).toFixed(5)}` : `● 0`);
-            diffEl.style.color = diffNum > 0 ? "#00ffaa" : (diffNum < 0 ? "#ff4466" : "#ffd966");
-        }
-    }
-
-    function resetAnalysis() {
-        if (botRunning) {
-            priceHistory = [];
-            demandZones = [];
-            supplyZones = [];
-            orderBlocks = [];
-            console.log("%c ✅ تم إعادة تعيين التحليل ", "color: #00ffaa; font-weight: bold;");
-        }
-    }
-
-    function getChartData() {
-        if (priceHistory.length === 0) return [];
-        return priceHistory.map(c => ({
-            time: c.time,
-            open: c.open,
-            high: c.high,
-            low: c.low,
-            close: c.close,
-            volume: c.volume || 1000
-        }));
     }
 
     // ========== إدارة الصفقات ==========
@@ -3734,6 +3826,12 @@ strategy_ChannelBreak.category = "scalp_fast";
 
     // ========== التحليل الذكي ==========
     function smartAnalysis() {
+        // التحقق من دعم الفريم قبل البدء
+        if (selectedTimeframe && TIMEFRAMES[selectedTimeframe] && TIMEFRAMES[selectedTimeframe].supported === false) {
+            if (searchStatusDiv) updateSearchStatus("⚠️ فريم غير مدعوم...");
+            return;
+        }
+        
         // 1. فحص السيولة أولاً (قاعدة ذهبية)
         if(!checkLiquidity()) { 
             if(searchStatusDiv) updateSearchStatus("⚠️ سيولة منخفضة...");
@@ -3827,6 +3925,36 @@ strategy_ChannelBreak.category = "scalp_fast";
         let now=Date.now();
         if(now-lastSignalTime<calculateWaitTime()) return;
         smartAnalysis();
+    }
+
+    // ========== تنفيذ أوامر الشراء/البيع ==========
+    function executeTradeOrder(direction) {
+        try {
+            if (direction === "CALL") {
+                const callButton = document.querySelector("main button.NojdU");
+                if (callButton) {
+                    callButton.click();
+                    console.log("%c ✅ تم تنفيذ أمر شراء (CALL) بنجاح", "color: #00ff00; font-weight: bold;");
+                    return true;
+                } else {
+                    console.warn("%c ⚠️ لم يتم العثور على زر CALL (.NojdU)", "color: #ffaa00;");
+                    return false;
+                }
+            } else if (direction === "PUT") {
+                const putButton = document.querySelector("button.oBTfq");
+                if (putButton) {
+                    putButton.click();
+                    console.log("%c ✅ تم تنفيذ أمر بيع (PUT) بنجاح", "color: #00ff00; font-weight: bold;");
+                    return true;
+                } else {
+                    console.warn("%c ⚠️ لم يتم العثور على زر PUT (.oBTfq)", "color: #ffaa00;");
+                    return false;
+                }
+            }
+        } catch(e) {
+            console.error("%c ❌ خطأ في تنفيذ الأمر: " + e.message, "color: #ff0000;");
+        }
+        return false;
     }
 
     // ========== واجهة المستخدم ==========
@@ -4057,9 +4185,9 @@ strategy_ChannelBreak.category = "scalp_fast";
                 createUI();
                 initPriceRadarV2();
                 initAssetDetectionV2();
+                initTimeframeDetectionV2();
                 initAccountDetectionV2();
                 initLiquidityDetection();
-                initChartDataCapture();
                 updateFibonacciLevels();
                 detectSupplyDemandZones();
             } else { alert("❌ كلمة المرور غير صحيحة ❌"); }
@@ -4070,21 +4198,12 @@ strategy_ChannelBreak.category = "scalp_fast";
 
     function startAnalysis() {
         if(!isAuthenticated){alert("🔐 الرجاء إدخال كلمة المرور");showPasswordModal();return;}
-        if(!selectedTimeframe){
-            // انتظر قليلاً لالتقاط الفريم من ObeidaBot
-            setTimeout(() => {
-                if(!selectedTimeframe) {
-                    showNotification("⚠️ الرجاء الانتظار حتى يتم اكتشاف الفريم تلقائياً", "#ffaa66");
-                    return;
-                }
-                startAnalysis();
-            }, 2000);
-            return;
-        }
+        if(!selectedTimeframe){showNotification("⚠️ الرجاء الانتظار حتى يتم اكتشاف الفريم تلقائياً", "#ffaa66");return;}
         
-        // التحقق من دعم الفريم
+        // التحقق من دعم الفريم قبل التشغيل
         if (TIMEFRAMES[selectedTimeframe] && TIMEFRAMES[selectedTimeframe].supported === false) {
-            showNotification(`⚠️ البوت لا يدعم فريم ${selectedTimeframe}. يرجى تغيير الفريم إلى 1 دقيقة أو أكثر.`, "#ff4466");
+            showNotification(`⚠️ البوت لا يدعم فريم ${selectedTimeframe}. الرجاء تغيير الفريم إلى 1 دقيقة فما فوق.`, "#ff4466");
+            showUnsupportedFrameWarning(selectedTimeframe);
             return;
         }
         
@@ -4095,6 +4214,7 @@ strategy_ChannelBreak.category = "scalp_fast";
         document.getElementById('stop-btn').style.display='flex';
         document.getElementById('status-text').innerHTML=`🟢 يعمل | ${selectedTimeframe} | ${getActiveStrategies().length} استراتيجية | تنفيذ تلقائي ${SETTINGS.autoExecuteTrades ? '✅' : '❌'}`;
         showSearchingStatus();
+        hideUnsupportedFrameWarning();
     }
 
     function stopAnalysis() {
@@ -4104,6 +4224,63 @@ strategy_ChannelBreak.category = "scalp_fast";
         document.getElementById('stop-btn').style.display='none';
         document.getElementById('status-text').innerHTML='🔴 التداول متوقف';
         hideSearchingStatus();
+    }
+
+    // رادار السعر اللحظي
+    function initPriceRadarV2() {
+        let lastPriceValue = 0;
+        
+        function getTargetAssetName() {
+            if (window.ObeidaBot && window.ObeidaBot.asset && window.ObeidaBot.asset !== "🔄 جاري الكشف...") {
+                return window.ObeidaBot.asset;
+            }
+            const assetElement = document.querySelector('.xfLZW');
+            if (!assetElement) return null;
+            let rawName = assetElement.innerText.split('\n')[0]; 
+            let cleanName = rawName.replace(/[^a-zA-Z]/g, "").toUpperCase();
+            if (rawName.includes("OTC")) cleanName = cleanName.replace("OTC", "") + "_otc";
+            return cleanName;
+        }
+
+        // استخدام WebSocket hook الموجود بالفعل
+        const originalWebSocket = window.WebSocket;
+        if (!originalWebSocket._hooked) {
+            window.WebSocket = function(url, protocols) {
+                const ws = new originalWebSocket(url, protocols);
+                ws.addEventListener('message', async (event) => handlePriceData(event.data));
+                return ws;
+            };
+            window.WebSocket._hooked = true;
+            window.WebSocket.prototype = originalWebSocket.prototype;
+        }
+
+        async function handlePriceData(data) {
+            let textData = "";
+            if (data instanceof Blob) textData = await data.text();
+            else if (data instanceof ArrayBuffer) textData = new TextDecoder().decode(data);
+            else textData = data.toString();
+
+            try {
+                const activeAsset = getTargetAssetName();
+                if (!activeAsset) return;
+
+                if (textData.includes(activeAsset) || textData.includes('quotes/stream')) {
+                    const priceMatch = textData.match(/(\d+\.\d{4,})/) || textData.match(/,(0?\.\d+),/);
+                    if (priceMatch) {
+                        const newPrice = parseFloat(priceMatch[1] || priceMatch[0]);
+                        if (!isNaN(newPrice) && newPrice > 0 && newPrice < 1000) {
+                            currentPrice = newPrice;
+                            let diff = lastPriceValue === 0 ? 0 : (currentPrice - lastPriceValue).toFixed(5);
+                            let color = diff > 0 ? "#27ae60" : (diff < 0 ? "#e74c3c" : "#2c3e50");
+                            console.log(`%c 🎯 Asset: ${activeAsset} Price: ${currentPrice} Speed: ${diff}`, "color: #00ffcc;");
+                            updatePriceDisplay(currentPrice, diff);
+                            if (currentTrade && currentTrade.status === "open") checkTradeExit(currentPrice);
+                            lastPriceValue = currentPrice;
+                        }
+                    }
+                }
+            } catch (e) {}
+        }
     }
 
     console.log(`✨ Obeida Trading V2 Ultimate ✨`);
